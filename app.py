@@ -42,7 +42,7 @@ def seconds_to_time(seconds: float | None) -> str:
 
 
 # ==========================================
-# EXACT COLUMN SCRAPER (29 SWIMS ONLY)
+# RESILIENT SCRAPER
 # ==========================================
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_live_pbs():
@@ -58,118 +58,71 @@ def fetch_live_pbs():
             },
         )
         response.raise_for_status()
+        html_text = response.text
     except Exception as e:
-        return None, f"Could not connect to Swim England: {str(e)}"
+        return None, f"Could not connect to Swim England: {str(e)}", ""
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(html_text, "html.parser")
     records = []
 
+    # Valid swim strokes to detect real event rows
+    event_keywords = ["freestyle", "breaststroke", "backstroke", "butterfly", "individual medley", "im", "free", "breast", "back", "fly"]
+
+    # Iterate through all tables and preceding headings
     for table in soup.find_all("table"):
-        rows = table.find_all("tr")
-        if not rows:
-            continue
+        # Check nearby headers or table text to determine primary course
+        table_context = ""
+        prev_node = table.find_previous(["h2", "h3", "h4", "caption", "p"])
+        if prev_node:
+            table_context = prev_node.get_text(strip=True).upper()
+        table_context += " " + table.get_text()[:200].upper()
 
-        # Look for header row to map columns dynamically
-        header_row = None
-        for r in rows:
-            ths = r.find_all(["th", "td"])
-            txts = [th.get_text(strip=True).upper() for th in ths]
-            if any("EVENT" in t for t in txts) and (any("TIME" in t for t in txts) or any("LC" in t for t in txts) or any("SC" in t for t in txts)):
-                header_row = txts
-                break
+        is_lc_section = "LONG COURSE" in table_context or "50M" in table_context
+        course_label = "Long Course (50m)" if is_lc_section else "Short Course (25m)"
+        conv_label = "Converted to SC" if is_lc_section else "Converted to LC"
 
-        if not header_row:
-            continue
-
-        # Map column indices from site header
-        event_col = -1
-        lc_col = -1
-        conv_sc_col = -1
-        sc_col = -1
-        conv_lc_col = -1
-        date_col = -1
-        meet_col = -1
-
-        for i, h in enumerate(header_row):
-            if "EVENT" in h:
-                event_col = i
-            elif "LC TIME" in h or h == "LC":
-                lc_col = i
-            elif "CONVERTED TO SC" in h or "CONV TO SC" in h:
-                conv_sc_col = i
-            elif "SC TIME" in h or h == "SC":
-                sc_col = i
-            elif "CONVERTED TO LC" in h or "CONV TO LC" in h:
-                conv_lc_col = i
-            elif "DATE" in h:
-                date_col = i
-            elif "MEET" in h:
-                meet_col = i
-
-        for r in rows:
-            tds = r.find_all("td")
-            if not tds or len(tds) < 2:
+        for row in table.find_all("tr"):
+            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+            if len(cells) < 2:
                 continue
 
-            vals = [td.get_text(strip=True) for td in tds]
-            event_name = vals[event_col] if 0 <= event_col < len(vals) else vals[0]
-
-            if not event_name or "EVENT" in event_name.upper():
+            first_cell = cells[0].strip()
+            # Must contain a recognized stroke and distance
+            if not any(k in first_cell.lower() for k in event_keywords) or not re.search(r"\d+", first_cell):
                 continue
 
-            # Case A: Separate LC and SC columns side-by-side
-            if lc_col != -1 and lc_col < len(vals):
-                raw_lc = vals[lc_col]
-                sec_lc = time_to_seconds(raw_lc)
-                if sec_lc:
-                    c_sc = vals[conv_sc_col] if 0 <= conv_sc_col < len(vals) else "--"
-                    records.append({
-                        "Course": "Long Course (50m)",
-                        "Event": event_name,
-                        "PB_Time": raw_lc,
-                        "PB_Sec": sec_lc,
-                        "Conv_Label": "Converted to SC",
-                        "Conv_Time": c_sc,
-                    })
+            # Look for swim times formatted as MM:SS.ss or SS.ss in remaining cells
+            time_matches = []
+            for c_idx, cell_str in enumerate(cells[1:], start=1):
+                if re.match(r"^(?:\d+:)?\d{2}\.\d{2}$", cell_str):
+                    time_matches.append((c_idx, cell_str))
 
-            if sc_col != -1 and sc_col < len(vals):
-                raw_sc = vals[sc_col]
-                sec_sc = time_to_seconds(raw_sc)
-                if sec_sc:
-                    c_lc = vals[conv_lc_col] if 0 <= conv_lc_col < len(vals) else "--"
-                    records.append({
-                        "Course": "Short Course (25m)",
-                        "Event": event_name,
-                        "PB_Time": raw_sc,
-                        "PB_Sec": sec_sc,
-                        "Conv_Label": "Converted to LC",
-                        "Conv_Time": c_lc,
-                    })
+            if not time_matches:
+                continue
 
-            # Case B: Stacked single-course table format
-            if lc_col == -1 and sc_col == -1:
-                t_str = vals[1]
-                sec = time_to_seconds(t_str)
-                if sec:
-                    table_txt = str(table).upper()
-                    is_lc = "LONG COURSE" in table_txt or "50M" in table_txt
-                    course_name = "Long Course (50m)" if is_lc else "Short Course (25m)"
-                    conv_lbl = "Converted to SC" if is_lc else "Converted to LC"
-                    conv_val = vals[2] if len(vals) > 2 and re.search(r"\d+\.\d+", vals[2]) else "--"
-                    records.append({
-                        "Course": course_name,
-                        "Event": event_name,
-                        "PB_Time": t_str,
-                        "PB_Sec": sec,
-                        "Conv_Label": conv_lbl,
-                        "Conv_Time": conv_val,
-                    })
+            # The first time is the actual recorded PB
+            actual_time_raw = time_matches[0][1]
+            actual_sec = time_to_seconds(actual_time_raw)
+
+            # If there's a second time, it represents the converted time column
+            conv_time_raw = time_matches[1][1] if len(time_matches) > 1 else "--"
+
+            records.append({
+                "Course": course_label,
+                "Event": first_cell,
+                "PB_Time": actual_time_raw,
+                "PB_Sec": actual_sec,
+                "Conv_Label": conv_label,
+                "Conv_Time": conv_time_raw,
+            })
 
     if not records:
-        return None, "No times found."
+        # Pass preview of raw HTML back if nothing was parsed
+        snippet = re.sub(r"\s+", " ", soup.get_text()[:400])
+        return None, "No times found.", snippet
 
     df = pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
-    return df, None
+    return df, None, ""
 
 
 # ==========================================
@@ -185,10 +138,13 @@ with col_head2:
         st.rerun()
 
 with st.spinner("Fetching latest rankings..."):
-    df_pbs, error = fetch_live_pbs()
+    df_pbs, error, debug_snippet = fetch_live_pbs()
 
 if error:
     st.error(error)
+    if debug_snippet:
+        with st.expander("Show Diagnostics"):
+            st.write("Page text preview:", debug_snippet)
     st.stop()
 
 # Initialize session targets
