@@ -69,7 +69,10 @@ def time_to_seconds(time_str: str) -> float | None:
     if not match:
         return None
     mins, secs = match.groups()
-    return (float(mins) * 60 if mins else 0.0) + float(secs)
+    try:
+        return (float(mins) * 60 if mins else 0.0) + float(secs)
+    except (ValueError, TypeError):
+        return None
 
 
 def seconds_to_time(seconds: float | None) -> str:
@@ -163,12 +166,17 @@ def fetch_live_pbs():
 # STATUS EVALUATOR
 # ==========================================
 def evaluate_cut(pb_sec, target_sec):
-    """Returns (status_label, gap_display, badge_class, percentage)."""
-    if pd.isna(target_sec) or target_sec is None or pd.isna(pb_sec) or pb_sec is None:
+    if target_sec is None or pb_sec is None or pd.isna(target_sec) or pd.isna(pb_sec):
         return "No Standard", "--", "badge-gray", 0.0
 
-    diff = pb_sec - target_sec
-    pct = min(max((target_sec / pb_sec) * 100.0 if pb_sec > 0 else 0, 0), 100)
+    try:
+        t_sec = float(target_sec)
+        p_sec = float(pb_sec)
+    except (ValueError, TypeError):
+        return "No Standard", "--", "badge-gray", 0.0
+
+    diff = p_sec - t_sec
+    pct = min(max((t_sec / p_sec) * 100.0 if p_sec > 0 else 0, 0), 100)
 
     if diff <= 0:
         return "Qualified 🎯", f"-{abs(diff):.2f}s", "badge-green", pct
@@ -226,9 +234,9 @@ with st.expander("🎯 Set Championship Standards (Yorkshires & NERs)", expanded
             "Yorkshires_Sec": time_to_seconds(yorkshires_val),
             "NERs_Sec": time_to_seconds(ners_val),
         }
-        st.success(f"Saved Yorkshires & NERs targets for {sel_ev} ({sel_course})!")
+        st.success(f"Saved targets for {sel_ev} ({sel_course})!")
 
-# Attach saved targets
+# Attach saved targets safely
 def get_target_info(row, field):
     key = f"{row['Course']}_{row['Event']}"
     if key in st.session_state.targets:
@@ -255,36 +263,30 @@ df_pbs["N_Badge"] = [e[2] for e in n_eval]
 df_pbs["N_Pct"] = [e[3] for e in n_eval]
 
 # ==========================================
-# UNIQUE EVENTS QUALIFIED LOGIC (LC vs Conv LC)
+# ROBUST UNIQUE EVENTS QUALIFIED LOGIC
 # ==========================================
-# Checks if each unique stroke/distance meets Yorkshires via LC PB or Converted LC from SC PB
-unique_events_list = df_pbs["Event"].unique().tolist()
 unique_yorkshires_qualified = 0
+unique_events_list = df_pbs["Event"].unique().tolist()
 
 for ev in unique_events_list:
     ev_df = df_pbs[df_pbs["Event"] == ev]
-    
-    # 1. Official Long Course PB (if available)
-    lc_row = ev_df[ev_df["Course"] == "Long Course (50m)"]
-    lc_pb_sec = lc_row["PB_Sec"].values[0] if not lc_row.empty else None
-    lc_target_sec = lc_row["Yorkshires_Sec"].values[0] if not lc_row.empty else None
-
-    # 2. Converted Long Course time from Short Course PB (if available)
-    sc_row = ev_df[ev_df["Course"] == "Short Course (25m)"]
-    sc_conv_sec = sc_row["Conv_Sec"].values[0] if not sc_row.empty else None
-    sc_target_sec = sc_row["Yorkshires_Sec"].values[0] if not sc_row.empty else None
-
     is_qualified = False
 
-    # Check direct LC comparison
-    if lc_pb_sec and lc_target_sec and lc_pb_sec <= lc_target_sec:
-        is_qualified = True
-    # Check SC converted to LC against LC target
-    elif sc_conv_sec and lc_target_sec and sc_conv_sec <= lc_target_sec:
-        is_qualified = True
-    # Check SC directly against SC target
-    elif sc_row.shape[0] > 0 and sc_row["PB_Sec"].values[0] and sc_target_sec and sc_row["PB_Sec"].values[0] <= sc_target_sec:
-        is_qualified = True
+    # Check all candidate times for this event across courses
+    for _, row in ev_df.iterrows():
+        y_sec = row["Yorkshires_Sec"]
+        if y_sec is not None and not pd.isna(y_sec):
+            # Direct PB check
+            pb_s = row["PB_Sec"]
+            if pb_s is not None and not pd.isna(pb_s) and pb_s <= y_sec:
+                is_qualified = True
+                break
+
+            # Converted time check
+            c_sec = row["Conv_Sec"]
+            if c_sec is not None and not pd.isna(c_sec) and c_sec <= y_sec:
+                is_qualified = True
+                break
 
     if is_qualified:
         unique_yorkshires_qualified += 1
@@ -302,7 +304,7 @@ else:
 # KPI METRIC CARDS
 # ==========================================
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Unique Yorkshires Cuts", unique_yorkshires_qualified, help="Calculated using fastest of LC PB or Converted LC from SC.")
+c1.metric("Unique Yorkshires Cuts", unique_yorkshires_qualified, help="Unique events qualified using PB or Converted equivalent.")
 c2.metric("Yorkshires Cuts (Rows)", len(display_df[display_df["Y_Status"] == "Qualified 🎯"]))
 c3.metric("NERs Cuts (Rows)", len(display_df[display_df["N_Status"] == "Qualified 🎯"]))
 c4.metric("Standards Configured", len(st.session_state.targets))
@@ -322,7 +324,6 @@ for _, r in display_df.iterrows():
             f"**Course:** {r['Course']} &bull; PB: **`{r['PB_Time']}`** &nbsp;|&nbsp; {r['Conv_Label']}: **`{r['Conv_Time']}`**"
         )
         
-        # Color badges in text overview
         y_cut_str = r['Yorkshires_Target'] or '--'
         n_cut_str = r['NERs_Target'] or '--'
         
@@ -334,15 +335,15 @@ for _, r in display_df.iterrows():
 
     with col_r:
         st.write("")
-        # Yorkshires bar
-        if pd.notna(r["Yorkshires_Sec"]) and r["Yorkshires_Sec"] is not None:
+        # Yorkshires progress
+        if r["Yorkshires_Sec"] is not None and not pd.isna(r["Yorkshires_Sec"]):
             st.caption(f"**Yorkshires Progress:** {r['Y_Pct']:.1f}% pace attained")
             st.progress(r["Y_Pct"] / 100.0)
         else:
             st.caption("No Yorkshires target configured.")
 
-        # NERs bar
-        if pd.notna(r["NERs_Sec"]) and r["NERs_Sec"] is not None:
+        # NERs progress
+        if r["NERs_Sec"] is not None and not pd.isna(r["NERs_Sec"]):
             st.caption(f"**NERs Progress:** {r['N_Pct']:.1f}% pace attained")
             st.progress(r["N_Pct"] / 100.0)
         else:
