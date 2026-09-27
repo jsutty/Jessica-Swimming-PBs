@@ -34,7 +34,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STYLING
+# 2. STYLING (CITY OF LEEDS PALETTE & STATUS COLORS)
 # ==============================================================================
 st.markdown(
     """
@@ -71,22 +71,66 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. TIME HELPERS & NORMALIZATION
+# 3. ROBUST TIME VALIDATION & NORMALIZATION
 # ==============================================================================
-def time_to_seconds(val):
-    if not val or pd.isna(val):
+def parse_time_value(val):
+    """
+    Parses any text or duration format into total float seconds:
+    - hh:mm:ss.ff (e.g. '00:00:33.80' or '00:01:14.20')
+    - mm:ss.ff (e.g. '1:14.20')
+    - ss.ff (e.g. '33.80' or '33.8')
+    Returns total float seconds, or None if invalid.
+    """
+    if val is None or pd.isna(val):
         return None
     val_str = str(val).strip().replace("'", ":").replace('"', "").replace(";", ":")
-    match = re.search(r"(?:(\d+):)?(\d+(?:\.\d+)?)", val_str)
-    if not match:
-        return None
-    mins, secs = match.groups()
-    try:
-        return (float(mins) * 60.0 if mins else 0.0) + float(secs)
-    except (ValueError, TypeError):
+    if not val_str or val_str in ["--", "-", "nt", "dq", "no cut"]:
         return None
 
-def seconds_to_time(sec):
+    # Format 1: hh:mm:ss.ff or hh:mm:ss
+    hms = re.match(r"^(\d{1,2}):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$", val_str)
+    if hms:
+        hours, mins, secs = hms.groups()
+        try:
+            return float(hours) * 3600.0 + float(mins) * 60.0 + float(secs)
+        except ValueError:
+            pass
+
+    # Format 2: mm:ss.ff or mm:ss
+    ms = re.match(r"^(\d{1,2}):(\d{1,2}(?:\.\d+)?)$", val_str)
+    if ms:
+        mins, secs = ms.groups()
+        try:
+            return float(mins) * 60.0 + float(secs)
+        except ValueError:
+            pass
+
+    # Format 3: pure seconds (ss.ff or ss)
+    s_only = re.match(r"^(\d+(?:\.\d+)?)$", val_str)
+    if s_only:
+        try:
+            return float(s_only.group(1))
+        except ValueError:
+            pass
+
+    # Fallback search extraction
+    match = re.search(r"(?:(?:(\d+):)?(\d+):)?(\d+(?:\.\d+)?)", val_str)
+    if match:
+        h, m, s = match.groups()
+        try:
+            total = float(s)
+            if m:
+                total += float(m) * 60.0
+            if h:
+                total += float(h) * 3600.0
+            return total
+        except (ValueError, TypeError):
+            return None
+
+    return None
+
+def format_display_time(sec):
+    """Formats float seconds into standard swimming time format (e.g. '33.80' or '1:14.20')."""
     if sec is None or pd.isna(sec):
         return "--"
     mins = int(sec // 60)
@@ -252,17 +296,17 @@ def parse_swim_england_table(raw_content):
                     continue
 
                 pb_t = times[0]
-                pb_s = time_to_seconds(pb_t)
+                pb_s = parse_time_value(pb_t)
                 conv_t = times[1] if len(times) > 1 else "--"
-                conv_s = time_to_seconds(conv_t)
+                conv_s = parse_time_value(conv_t)
 
                 records.append({
                     "Course": c_name,
                     "Event": ev_candidate,
-                    "PB_Time": pb_t,
+                    "PB_Time": format_display_time(pb_s),
                     "PB_Sec": pb_s,
                     "Conv_Label": conv_lbl,
-                    "Conv_Time": conv_t,
+                    "Conv_Time": format_display_time(conv_s),
                     "Conv_Sec": conv_s,
                 })
 
@@ -284,18 +328,18 @@ def parse_swim_england_table(raw_content):
                     idx = line_str.find(times[0])
                     ev_cand = line_str[:idx].strip(" \t-:,")
                     pb_t = times[0]
-                    pb_s = time_to_seconds(pb_t)
+                    pb_s = parse_time_value(pb_t)
                     conv_t = times[1] if len(times) > 1 else "--"
-                    conv_s = time_to_seconds(conv_t)
+                    conv_s = parse_time_value(conv_t)
                     conv_lbl = "Conv to SC" if current_c == "Long Course (50m)" else "Conv to LC"
 
                     records.append({
                         "Course": current_c,
                         "Event": ev_cand if ev_cand else "Swim Event",
-                        "PB_Time": pb_t,
+                        "PB_Time": format_display_time(pb_s),
                         "PB_Sec": pb_s,
                         "Conv_Label": conv_lbl,
-                        "Conv_Time": conv_t,
+                        "Conv_Time": format_display_time(conv_s),
                         "Conv_Sec": conv_s,
                     })
 
@@ -304,7 +348,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. ENHANCED GOOGLE SHEETS FETCHER WITH EXACT HEADER ROW DETECTION
+# 6. GOOGLE SHEETS FETCHER & TIME VALIDATING PARSER
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -325,6 +369,13 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
+
+    if tab_identifier and not str(tab_identifier).isdigit():
+        encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
+        candidate_urls.extend([
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
+        ])
 
     csv_text = None
     last_err = ""
@@ -351,7 +402,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Identify the real header row: look for the row containing both 11 and 12, or Event/Stroke
     header_idx = 0
     for i, line in enumerate(raw_lines[:15]):
         line_l = line.lower()
@@ -397,7 +447,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     if df_raw.empty or df_raw.shape[1] < 2:
         return 0, "Table has fewer than 2 columns."
 
-    # If Column A contains merged competition titles, forward-fill them down
     df = df_raw.copy()
     if df.shape[1] >= 2:
         df.iloc[:, 0] = df.iloc[:, 0].ffill()
@@ -406,7 +455,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     comp_col = None
     event_col = None
 
-    # Detect competition column
     for col in df.columns:
         col_c = str(col).strip().lower()
         if any(k in col_c for k in ["comp", "meet", "championship"]):
@@ -415,7 +463,6 @@ def parse_standards_dataframe(df_raw, default_meet):
         elif any(k in col_c for k in ["event", "stroke", "race"]):
             event_col = col
 
-    # Check cell values in Column 0 if header wasn't labeled "Competition"
     if not has_comp_col and df.shape[1] >= 3:
         sample_vals = [str(x).lower() for x in df.iloc[:10, 0].dropna()]
         if any(any(k in s for k in ["ner", "york", "winter", "lc", "sc"]) for s in sample_vals):
@@ -426,7 +473,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # STRICT AGE COLUMN EXTRACTION (Prevents 17 & Over from matching Age 11)
     col_age_11 = None
     col_age_12 = None
 
@@ -435,14 +481,11 @@ def parse_standards_dataframe(df_raw, default_meet):
             continue
         c_str = str(col).strip().lower()
 
-        # Exclude any column containing 17, 18, over, or +
         if any(k in c_str for k in ["17", "18", "19", "over", "ov", "+"]):
             continue
 
-        # Strictly match standalone 11
         if re.search(r"(?<!\d)11(?!\d)", c_str):
             col_age_11 = col
-        # Strictly match standalone 12
         elif re.search(r"(?<!\d)12(?!\d)", c_str):
             col_age_12 = col
 
@@ -469,13 +512,14 @@ def parse_standards_dataframe(df_raw, default_meet):
         clean_ev = normalize_event_name(raw_ev)
 
         for col_name, age_band in age_cols:
-            val_str = str(row[col_name]).strip()
-            sec = time_to_seconds(val_str)
+            val_raw = row[col_name]
+            sec = parse_time_value(val_raw)
             if sec is None:
                 continue
 
+            disp_str = format_display_time(sec)
             key = (current_meet, age_band, clean_ev)
-            st.session_state.standards_db[key] = {"time": val_str, "sec": sec}
+            st.session_state.standards_db[key] = {"time": disp_str, "sec": sec}
             saved_count += 1
 
     return saved_count, None
@@ -495,7 +539,6 @@ def lookup_standard(meet, age, event_name):
     if key in st.session_state.standards_db:
         return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
-    # Fuzzy match based on distance and stroke
     req_dist, req_stroke = extract_distance_and_stroke(event_name)
     if req_dist and req_stroke:
         for (m, a, e), data in st.session_state.standards_db.items():
@@ -594,7 +637,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                         count, parse_err = parse_standards_dataframe(df_sheet, sheet_meet)
                         if count > 0:
                             save_standards_to_disk(st.session_state.standards_db)
-                            st.success(f"Successfully loaded and saved {count} qualifying standards!")
+                            st.success(f"Successfully converted and saved {count} qualifying standards across all meets!")
                             st.rerun()
                         else:
                             st.error(parse_err)
@@ -630,21 +673,22 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
             s_meet = st.selectbox("Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
             s_age = st.selectbox("Age Band", ["11", "12"])
         with col_s3:
-            s_val = st.text_input("Target Cut (e.g. 32.50 or 1:08.20)")
+            s_val = st.text_input("Target Cut (e.g. 33.80, 00:00:33.8, or 1:08.20)")
             if st.button("💾 Save Standard", use_container_width=True):
-                sec = time_to_seconds(s_val)
+                sec = parse_time_value(s_val)
                 if sec:
                     clean_k = normalize_event_name(s_ev)
-                    st.session_state.standards_db[(s_meet, s_age, clean_k)] = {"time": s_val.strip(), "sec": sec}
+                    disp_str = format_display_time(sec)
+                    st.session_state.standards_db[(s_meet, s_age, clean_k)] = {"time": disp_str, "sec": sec}
                     save_standards_to_disk(st.session_state.standards_db)
-                    st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
+                    st.success(f"Saved {s_meet} Age {s_age} target for {s_ev} as {disp_str}!")
                     st.rerun()
 
     # Active Database Inspector & Clear Option
     with st.expander("📊 View Currently Saved Standards in Memory", expanded=False):
         if st.session_state.standards_db:
             db_list = [
-                {"Meet": k[0], "Age": k[1], "Event Key": k[2], "Target Time": v["time"], "Seconds": v["sec"]}
+                {"Meet": k[0], "Age": k[1], "Event Key": k[2], "Validated Time": v["time"], "Seconds": v["sec"]}
                 for k, v in st.session_state.standards_db.items()
             ]
             st.dataframe(pd.DataFrame(db_list), use_container_width=True)
@@ -779,8 +823,8 @@ for ev in unique_events:
                 st.markdown("**🏊‍♀️ SC PB:** *No official SC PB recorded*")
 
             st.caption(
-                f"Reference Times &bull; Best LC Eligible: **`{seconds_to_time(best_lc_sec)}`** &bull; "
-                f"Best SC Eligible: **`{seconds_to_time(best_sc_sec)}`**"
+                f"Reference Times &bull; Best LC Eligible: **`{format_display_time(best_lc_sec)}`** &bull; "
+                f"Best SC Eligible: **`{format_display_time(best_sc_sec)}`**"
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -863,11 +907,11 @@ with st.expander("📋 Tabular View of All Swims & Active Age Standards"):
 
         summary_rows.append({
             "Event": ev,
-            "Best LC Eligible": seconds_to_time(best_lc_sec),
+            "Best LC Eligible": format_display_time(best_lc_sec),
             f"Yorkshire LC ({active_age})": y_lc_t or "--",
             "YKS LC Status": ev_y_lc[0],
             "YKS LC Gap": ev_y_lc[1],
-            "Best SC Eligible": seconds_to_time(best_sc_sec),
+            "Best SC Eligible": format_display_time(best_sc_sec),
             f"Yorkshire SC ({active_age})": y_sc_t or "--",
             "YKS SC Status": ev_y_sc[0],
             f"NER LC ({active_age})": n_lc_t or "--",
