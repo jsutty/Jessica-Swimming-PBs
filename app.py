@@ -164,11 +164,11 @@ def evaluate_pace(pb_sec, target_sec):
 def normalize_event_name(ev_name):
     s = str(ev_name).lower()
     s = re.sub(r"\bmeters?\b|\bm\b", "", s)
-    s = re.sub(r"\bfreestyle\b", "free", s)
-    s = re.sub(r"\bbackstroke\b", "back", s)
-    s = re.sub(r"\bbreaststroke\b", "breast", s)
-    s = re.sub(r"\bbutterfly\b", "fly", s)
-    s = re.sub(r"\bindividual medley\b", "im", s)
+    s = re.sub(r"\bfreestyle\b|\bfree\b", "free", s)
+    s = re.sub(r"\bbackstroke\b|\bback\s*stroke\b|\bback\b", "back", s)
+    s = re.sub(r"\bbreaststroke\b|\bbreast\s*stroke\b|\bbreast\b", "breast", s)
+    s = re.sub(r"\bbutterfly\b|\bfly\b", "fly", s)
+    s = re.sub(r"\bindividual medley\b|\bim\b|\bmedley\b", "im", s)
     return re.sub(r"[^a-z0-9]", "", s)
 
 def extract_distance_and_stroke(ev_name):
@@ -373,6 +373,13 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
 
+    if tab_identifier and not str(tab_identifier).isdigit():
+        encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
+        candidate_urls.extend([
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
+        ])
+
     csv_text = None
     last_err = ""
     for url in candidate_urls:
@@ -457,7 +464,7 @@ def parse_standards_dataframe(df_raw, default_meet):
         if any(k in col_c for k in ["comp", "meet", "championship"]):
             has_comp_col = True
             comp_col = col
-        elif any(k in col_c for k in ["event", "stroke", "race"]):
+        elif any(k in col_c for k in ["event", "race", "stroke name", "event name"]):
             event_col = col
 
     if not has_comp_col and df.shape[1] >= 3:
@@ -505,7 +512,10 @@ def parse_standards_dataframe(df_raw, default_meet):
             current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
         raw_ev = str(row[event_col]).strip()
-        if not raw_ev or any(k in raw_ev.lower() for k in ["event", "stroke", "qualifying", "consideration"]):
+        
+        # Only skip pure header cells, NEVER skip breaststroke or backstroke
+        raw_ev_lower = raw_ev.lower()
+        if not raw_ev or raw_ev_lower in ["event", "stroke", "qualifying", "consideration", "events"]:
             continue
 
         clean_ev = normalize_event_name(raw_ev)
@@ -698,7 +708,6 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
         else:
             st.info("No standards currently saved in app memory. Tap 'Sync Directly from Google Sheet' above.")
 
-# Helpers for eligible time lookups
 unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
 
 def get_best_eligible_times(ev):
@@ -719,7 +728,7 @@ def get_best_eligible_times(ev):
     return best_lc_sec, best_sc_sec
 
 # ==============================================================================
-# 11. TOP-LEVEL APPLICATION NAVIGATION TABS
+# 11. TOP-LEVEL NAVIGATION TABS
 # ==============================================================================
 main_tab_events, main_tab_summary = st.tabs([
     "📊 Event-by-Event Tracker",
@@ -741,7 +750,6 @@ with main_tab_events:
             key="stroke_filter_tab"
         )
 
-    # Calculate Unique Yorkshire LC Cuts for Active Age
     unique_yks_cuts = 0
     for ev in unique_events:
         best_lc_sec, _ = get_best_eligible_times(ev)
@@ -933,7 +941,6 @@ with main_tab_summary:
         st.markdown(f'<div class="summary-card">', unsafe_allow_html=True)
         st.subheader(f"{m_info['emoji']} {m_title} (Age {summary_age})")
 
-        # Top Metric Row for Competition
         c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
         c_kpi1.metric("Qualified 🎯", len(qual_events))
         c_kpi2.metric("Within 1s ⚡", len(close_events))
@@ -947,7 +954,6 @@ with main_tab_summary:
         else:
             col_q, col_w, col_c = st.columns(3)
 
-            # Column 1: Qualified
             with col_q:
                 st.markdown(f"**🎯 Qualified ({len(qual_events)})**")
                 if qual_events:
@@ -960,7 +966,6 @@ with main_tab_summary:
                 else:
                     st.caption("No events qualified yet.")
 
-            # Column 2: Within 1 Second
             with col_w:
                 st.markdown(f"**⚡ Within 1.0s ({len(close_events)})**")
                 if close_events:
@@ -973,7 +978,6 @@ with main_tab_summary:
                 else:
                     st.caption("No events currently within 1.0s.")
 
-            # Column 3: Chasing
             with col_c:
                 st.markdown(f"**⏱️ Chasing ({len(chasing_events)})**")
                 if chasing_events:
