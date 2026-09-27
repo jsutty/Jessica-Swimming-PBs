@@ -21,6 +21,7 @@ CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of
 
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdMKp-w3yIT_qZxoHA6zFaxLdjuk/edit?usp=drivesdk"
 DEFAULT_WORKSHEET_TAB = "EXPORT"
+DEFAULT_WORKSHEET_GID = "839340006"
 
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 PBS_FILE = os.path.join(DATA_DIR, "jessica_pbs.json")
@@ -284,20 +285,36 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. ENHANCED GOOGLE SHEETS CONNECTOR & PARSER
+# 6. GOOGLE SHEETS FETCHER & MULTI-TAB PARSER WITH GID TARGETING
 # ==============================================================================
-def fetch_google_sheet_csv(sheet_url, tab_name):
+def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
     if not match:
-        return None, "Invalid Google Sheets URL. Could not extract Sheet ID."
+        return None, "Invalid Google Sheets URL. Could not find Sheet ID."
 
     sheet_id = match.group(1)
-    encoded_tab = urllib.parse.quote(tab_name.strip())
+    
+    # Priority: If gid is in sheet_url, tab_identifier, or default config
+    gid_match = re.search(r"gid=(\d+)", sheet_url + " " + str(tab_identifier))
+    if gid_match:
+        gid = gid_match.group(1)
+    elif str(tab_identifier).isdigit():
+        gid = str(tab_identifier)
+    else:
+        gid = DEFAULT_WORKSHEET_GID
 
     candidate_urls = [
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
+
+    # Add tab-name based fallbacks if available
+    if tab_identifier and not str(tab_identifier).isdigit():
+        encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
+        candidate_urls.extend([
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
+        ])
 
     csv_text = None
     last_err = ""
@@ -313,22 +330,22 @@ def fetch_google_sheet_csv(sheet_url, tab_name):
                 csv_text = resp.text
                 break
             else:
-                last_err = f"HTTP {resp.status_code} or received HTML response"
+                last_err = f"HTTP {resp.status_code}"
         except Exception as e:
             last_err = str(e)
 
     if not csv_text:
-        return None, f"Could not fetch tab '{tab_name}'. ({last_err})"
+        return None, f"Could not fetch tab content for gid={gid}. ({last_err})"
 
     raw_lines = [ln for ln in csv_text.splitlines() if ln.strip()]
     if not raw_lines:
-        return None, "Received empty worksheet content."
+        return None, "Worksheet appears to be completely empty."
 
-    # Scan for header row containing Stroke, Event, Distance, or 11/12
+    # Scan rows for the header containing Stroke, Event, Distance, or 11/12
     header_idx = 0
-    for i, line in enumerate(raw_lines[:15]):
+    for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
-        if any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "11"]):
+        if any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "11", "12"]):
             header_idx = i
             break
 
@@ -350,10 +367,10 @@ def parse_standards_dataframe(df_raw, default_meet):
 
     for col in df_raw.columns:
         col_c = str(col).strip().lower()
-        if "comp" in col_c or "meet" in col_c or "championship" in col_c:
+        if any(k in col_c for k in ["comp", "meet", "championship"]):
             has_comp_col = True
             comp_col = col
-        elif "event" in col_c or "stroke" in col_c or "race" in col_c:
+        elif any(k in col_c for k in ["event", "stroke", "race"]):
             event_col = col
 
     if not event_col:
@@ -365,6 +382,7 @@ def parse_standards_dataframe(df_raw, default_meet):
             comp_col = df_raw.columns[0]
             event_col = df_raw.columns[1]
 
+    # Map Age 11 and Age 12 columns strictly
     age_cols = []
     for col in df_raw.columns:
         if col in [comp_col, event_col]:
@@ -478,16 +496,16 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
 
     with tab_gsheet:
         st.markdown(
-            "Sync directly from your shared Google Sheet tab (`EXPORT`):"
+            f"Sync directly from your shared Google Sheet tab (`{DEFAULT_WORKSHEET_TAB}` &bull; `gid={DEFAULT_WORKSHEET_GID}`):"
         )
         c_url, c_tab = st.columns([2, 1])
         with c_url:
             gsheet_raw_url = st.text_input(
                 "Google Sheet Link",
-                value=DEFAULT_GSHEET_URL,
+                value=f"{DEFAULT_GSHEET_URL}#gid={DEFAULT_WORKSHEET_GID}",
             )
         with c_tab:
-            worksheet_tab_name = st.text_input("Worksheet Tab Name", value=DEFAULT_WORKSHEET_TAB)
+            worksheet_tab_name = st.text_input("Worksheet Tab Name / gid", value=DEFAULT_WORKSHEET_GID)
 
         sheet_meet = st.selectbox(
             "Default Meet (used if Column A has no meet specified):",
@@ -496,7 +514,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
         )
 
         if st.button("🔄 Sync Directly from Google Sheet", use_container_width=True):
-            with st.spinner(f"Connecting to Google Sheets (Tab: {worksheet_tab_name})..."):
+            with st.spinner(f"Connecting to Google Sheets (gid={worksheet_tab_name})..."):
                 df_sheet, err = fetch_google_sheet_csv(gsheet_raw_url, worksheet_tab_name)
                 if err:
                     st.error(err)
@@ -510,7 +528,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
                         st.error(parse_err)
                         with st.expander("🔍 View Table Detected from Google Sheets"):
                             st.write("Columns detected:", list(df_sheet.columns))
-                            st.dataframe(df_sheet.head(5))
+                            st.dataframe(df_sheet.head(10))
 
     with tab_paste:
         st.write("Paste cells copied directly from Google Sheets / Excel:")
