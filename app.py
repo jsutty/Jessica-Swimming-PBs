@@ -167,13 +167,7 @@ def seconds_to_time(seconds: float | None) -> str:
 # GALA ORDER SORTING KEY
 # ==========================================
 def event_sort_key(event_name: str) -> tuple:
-    """
-    Sorts by Stroke sequence: Freestyle -> Backstroke -> Breaststroke -> Butterfly -> IM
-    Then by Distance: 50 -> 100 -> 200 -> 400 -> 800 -> 1500
-    """
     name = str(event_name).lower()
-    
-    # Stroke sequence priority
     if "free" in name:
         stroke_rank = 1
     elif "back" in name:
@@ -187,10 +181,8 @@ def event_sort_key(event_name: str) -> tuple:
     else:
         stroke_rank = 6
 
-    # Distance extraction
     dist_match = re.search(r"\d+", name)
     dist = int(dist_match.group(0)) if dist_match else 9999
-
     return (stroke_rank, dist, name)
 
 
@@ -207,7 +199,6 @@ def parse_swim_content(content_str: str):
     )
     time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
-    # Approach A: HTML table extraction
     if "<table" in content_str.lower() or "<tr" in content_str.lower():
         soup = BeautifulSoup(content_str, "html.parser")
         for table in soup.find_all("table"):
@@ -254,7 +245,6 @@ def parse_swim_content(content_str: str):
                     "Conv_Sec": conv_sec,
                 })
 
-    # Approach B: Plain text line fallback
     if not records:
         current_course = "Short Course (25m)"
         for line in content_str.split("\n"):
@@ -298,10 +288,6 @@ def parse_swim_content(content_str: str):
 # GOOGLE SHEETS / TSV TARGETS PARSER
 # ==========================================
 def parse_google_sheets_targets(tsv_str: str, default_course: str):
-    """
-    Parses copied rows directly from Google Sheets / Excel.
-    Expected format: Event in first column, followed by championship targets with headers.
-    """
     if not tsv_str or not tsv_str.strip():
         return 0
 
@@ -309,7 +295,6 @@ def parse_google_sheets_targets(tsv_str: str, default_course: str):
     if not lines:
         return 0
 
-    # Auto-detect tab or comma delimiter
     sep = "\t" if "\t" in lines[0] else ","
     try:
         df_raw = pd.read_csv(io.StringIO("\n".join(lines)), sep=sep)
@@ -334,7 +319,6 @@ def parse_google_sheets_targets(tsv_str: str, default_course: str):
             if val_sec is None:
                 continue
 
-            # Determine meet championship
             meet = "Yorkshires"
             if "ner winter" in col_clean:
                 meet = "NER Winter"
@@ -343,10 +327,8 @@ def parse_google_sheets_targets(tsv_str: str, default_course: str):
             elif "yorkshire winter" in col_clean or "yks winter" in col_clean:
                 meet = "Yorkshire Winter"
 
-            # Determine age category
             age = "12" if "12" in col_clean else "11"
 
-            # Determine course
             course = default_course
             if "long" in col_clean or "50m" in col_clean or "lc" in col_clean:
                 course = "Long Course (50m)"
@@ -393,31 +375,28 @@ def evaluate_cut(pb_sec, target_sec):
 if "jessica_pbs_df" not in st.session_state:
     st.session_state.jessica_pbs_df = None
 
-# Key structure: (Meet, Age, Course, Event_Lower) -> {"time_str": ..., "seconds": ...}
 if "multi_targets" not in st.session_state:
     st.session_state.multi_targets = {}
 
 # ==========================================
 # CITY OF LEEDS CLUB HEADER
 # ==========================================
-st.markdown(
-    f"""
-    <div class="leeds-header">
-        <div>
-            <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>
-            <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; CHAMPIONSHIP STANDARDS TRACKER</div>
-            <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">
-                Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; 
-                <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>
-            </div>
-        </div>
-        <div>
-            <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display='none'">
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+header_html = (
+    '<div class="leeds-header">'
+    '  <div>'
+    f'    <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>'
+    '    <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; CHAMPIONSHIP STANDARDS TRACKER</div>'
+    '    <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">'
+    f'      Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; '
+    f'      <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>'
+    '    </div>'
+    '  </div>'
+    '  <div>'
+    f'    <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display=\'none\'">'
+    '  </div>'
+    '</div>'
 )
+st.markdown(header_html, unsafe_allow_html=True)
 
 # ==========================================
 # SYNC MODAL FOR SWIM RESULTS
@@ -452,7 +431,7 @@ if df_pbs is None or df_pbs.empty:
     st.stop()
 
 # ==========================================
-# TARGET TIMES IMPORTER (GOOGLE SHEETS TSV & SINGLE FORM)
+# TARGET TIMES IMPORTER
 # ==========================================
 with st.expander("🎯 Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
     tab_bulk, tab_single = st.tabs(["📋 Paste from Google Sheets", "✏️ Single Event Entry"])
