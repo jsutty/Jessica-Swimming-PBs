@@ -75,64 +75,71 @@ st.markdown(
 # ==============================================================================
 def parse_time_value(val):
     """
-    Parses any text or duration format into total float seconds:
-    - hh:mm:ss.ff (e.g. '00:00:33.80' or '00:01:14.20')
-    - mm:ss.ff (e.g. '1:14.20')
-    - ss.ff (e.g. '33.80' or '33.8')
-    Returns total float seconds, or None if invalid.
+    Bulletproof parser for raw numbers, floats, strings, and duration objects.
+    Handles:
+    - Floats/Ints directly: 12.3, 33.8, 45
+    - Strings: '12.3', '33.80', '1:14.2', '00:00:12.3', '00:01:14.50'
+    Returns float seconds, or None if invalid/empty.
     """
     if val is None or pd.isna(val):
         return None
+
+    # Case A: Already a numeric integer or float
+    if isinstance(val, (int, float)):
+        try:
+            f = float(val)
+            return f if f > 0 else None
+        except (ValueError, TypeError):
+            return None
+
     val_str = str(val).strip().replace("'", ":").replace('"', "").replace(";", ":")
-    if not val_str or val_str in ["--", "-", "nt", "dq", "no cut"]:
+    if not val_str or val_str.lower() in ["--", "-", "nt", "dq", "no cut", "nan", "none"]:
         return None
 
-    # Format 1: hh:mm:ss.ff or hh:mm:ss
-    hms = re.match(r"^(\d{1,2}):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$", val_str)
-    if hms:
-        hours, mins, secs = hms.groups()
-        try:
-            return float(hours) * 3600.0 + float(mins) * 60.0 + float(secs)
-        except ValueError:
-            pass
+    # Case B: Standard float string (e.g. '12.3', '33.80')
+    try:
+        f = float(val_str)
+        return f if f > 0 else None
+    except ValueError:
+        pass
 
-    # Format 2: mm:ss.ff or mm:ss
-    ms = re.match(r"^(\d{1,2}):(\d{1,2}(?:\.\d+)?)$", val_str)
-    if ms:
-        mins, secs = ms.groups()
-        try:
-            return float(mins) * 60.0 + float(secs)
-        except ValueError:
-            pass
+    # Case C: Colon separated durations (e.g. '1:14.20', '00:00:33.8', '00:01:12.3')
+    parts = val_str.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
+            return h * 3600.0 + m * 60.0 + s
+        elif len(parts) == 2:
+            m, s = float(parts[0]), float(parts[1])
+            return m * 60.0 + s
+    except (ValueError, TypeError):
+        pass
 
-    # Format 3: pure seconds (ss.ff or ss)
-    s_only = re.match(r"^(\d+(?:\.\d+)?)$", val_str)
-    if s_only:
+    # Case D: Regex search fallback
+    m = re.search(r"(?:(?:(\d+):)?(\d+):)?(\d+(?:\.\d+)?)", val_str)
+    if m:
+        hrs, mins, secs = m.groups()
         try:
-            return float(s_only.group(1))
-        except ValueError:
-            pass
-
-    # Fallback search extraction
-    match = re.search(r"(?:(?:(\d+):)?(\d+):)?(\d+(?:\.\d+)?)", val_str)
-    if match:
-        h, m, s = match.groups()
-        try:
-            total = float(s)
-            if m:
-                total += float(m) * 60.0
-            if h:
-                total += float(h) * 3600.0
-            return total
+            total = float(secs)
+            if mins:
+                total += float(mins) * 60.0
+            if hrs:
+                total += float(hrs) * 3600.0
+            return total if total > 0 else None
         except (ValueError, TypeError):
             return None
 
     return None
 
 def format_display_time(sec):
-    """Formats float seconds into standard swimming time format (e.g. '33.80' or '1:14.20')."""
+    """Formats float seconds into clean swimming format (e.g. 12.3 -> '12.30', 74.2 -> '1:14.20')."""
     if sec is None or pd.isna(sec):
         return "--"
+    try:
+        sec = float(sec)
+    except (ValueError, TypeError):
+        return "--"
+
     mins = int(sec // 60)
     rem = sec % 60
     if mins > 0:
@@ -266,7 +273,7 @@ def parse_swim_england_table(raw_content):
         r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b",
         re.I,
     )
-    time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
+    time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{1,2}")
 
     if "<table" in raw_content.lower() or "<tr" in raw_content.lower():
         soup = BeautifulSoup(raw_content, "html.parser")
@@ -673,7 +680,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
             s_meet = st.selectbox("Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
             s_age = st.selectbox("Age Band", ["11", "12"])
         with col_s3:
-            s_val = st.text_input("Target Cut (e.g. 33.80, 00:00:33.8, or 1:08.20)")
+            s_val = st.text_input("Target Cut (e.g. 12.3, 33.80, 00:00:33.8, or 1:08.20)")
             if st.button("💾 Save Standard", use_container_width=True):
                 sec = parse_time_value(s_val)
                 if sec:
