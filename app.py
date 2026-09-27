@@ -4,12 +4,15 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import streamlit as st
 
-# ==========================================
-# SWIMMER & CLUB PROFILE CONFIG
-# ==========================================
+# ==============================================================================
+# 1. APPLICATION & SWIMMER PROFILE CONFIG
+# ==============================================================================
 SWIMMER_NAME = "Jessica Sutcliffe"
 SWIMMER_TIREF = "1749292"
-SWIMMER_URL = f"https://www.swimmingresults.org/individualbest/personal_best.php?back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
+SWIMMER_URL = (
+    "https://www.swimmingresults.org/individualbest/personal_best.php?"
+    f"back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
+)
 CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of-Leeds-Swimming-Club-Logo.png"
 
 st.set_page_config(
@@ -18,359 +21,513 @@ st.set_page_config(
     layout="wide",
 )
 
-# ==========================================
-# CITY OF LEEDS SC THEME STYLING
-# ==========================================
-css_style = (
-    "<style>\n"
-    "    .main { background-color: #f4f6fa; }\n"
-    "    .leeds-header {\n"
-    "        background: linear-gradient(135deg, #001a4d 0%, #003399 70%, #0055d4 100%);\n"
-    "        border-radius: 12px;\n"
-    "        padding: 24px 28px;\n"
-    "        color: #ffffff;\n"
-    "        margin-bottom: 25px;\n"
-    "        box-shadow: 0 4px 14px rgba(0, 32, 91, 0.15);\n"
-    "        border-left: 6px solid #FFC72C;\n"
-    "        display: flex;\n"
-    "        align-items: center;\n"
-    "        justify-content: space-between;\n"
-    "    }\n"
-    "    .leeds-title { font-size: 2.1rem; font-weight: 800; color: #ffffff; margin: 0; letter-spacing: -0.5px; }\n"
-    "    .leeds-sub { font-size: 1.0rem; color: #FFC72C; font-weight: 600; margin-top: 4px; }\n"
-    "    .event-card {\n"
-    "        background: #ffffff;\n"
-    "        border-radius: 10px;\n"
-    "        padding: 18px 22px;\n"
-    "        margin-bottom: 18px;\n"
-    "        border: 1px solid #e1e6f0;\n"
-    "        box-shadow: 0 2px 8px rgba(0,0,0,0.04);\n"
-    "        border-top: 4px solid #003399;\n"
-    "    }\n"
-    "    .event-header { font-size: 1.35rem; font-weight: 700; color: #00205B; margin-bottom: 12px; }\n"
-    "    .pill-lc { background-color: #003399; color: #ffffff; font-weight: 700; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px; display: inline-block; margin-right: 8px; }\n"
-    "    .pill-sc { background-color: #008080; color: #ffffff; font-weight: 700; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px; display: inline-block; margin-right: 8px; }\n"
-    "    .badge-green { background-color: #d1e7dd; color: #0f5132; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
-    "    .badge-orange { background-color: #ffe5d0; color: #b25e00; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
-    "    .badge-red { background-color: #f8d7da; color: #842029; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
-    "    .badge-gray { background-color: #e9ecef; color: #6c757d; padding: 2px 7px; border-radius: 5px; font-weight: 500; font-size: 0.85rem; display: inline-block; }\n"
-    "    div[data-testid='stMetric'] {\n"
-    "        background-color: #ffffff;\n"
-    "        border: 1px solid #e1e6f0;\n"
-    "        padding: 12px 16px;\n"
-    "        border-radius: 10px;\n"
-    "        border-bottom: 3px solid #FFC72C;\n"
-    "        box-shadow: 0 2px 6px rgba(0,0,0,0.02);\n"
-    "    }\n"
-    "</style>\n"
+# ==============================================================================
+# 2. STABLE CSS INJECTION (CITY OF LEEDS CLUB PALETTE)
+# ==============================================================================
+st.markdown(
+    """
+    <style>
+    .main { background-color: #f6f8fb; }
+    .stApp header { background-color: transparent; }
+    .badge-q { background-color: #d1e7dd; color: #0f5132; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+    .badge-w { background-color: #ffe5d0; color: #b25e00; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+    .badge-c { background-color: #f8d7da; color: #842029; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+    .badge-n { background-color: #e9ecef; color: #6c757d; padding: 2px 6px; border-radius: 4px; }
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #dce3ed;
+        border-bottom: 4px solid #FFC72C;
+        border-radius: 8px;
+        padding: 12px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
-st.markdown(css_style, unsafe_allow_html=True)
 
-# ==========================================
-# TIME HELPERS
-# ==========================================
-def time_to_seconds(time_str: str) -> float | None:
-    if not time_str or not isinstance(time_str, str):
+# ==============================================================================
+# 3. TIME CONVERSION & MATHEMATICS
+# ==============================================================================
+def time_to_seconds(val):
+    if not val or pd.isna(val):
         return None
-    time_str = str(time_str).strip()
-    match = re.search(r"(?:(\d+):)?(\d+\.\d+)", time_str)
+    val_str = str(val).strip()
+    match = re.search(r"(?:(\d+):)?(\d+\.\d+)", val_str)
     if not match:
         return None
     mins, secs = match.groups()
     try:
-        return (float(mins) * 60 if mins else 0.0) + float(secs)
+        return (float(mins) * 60.0 if mins else 0.0) + float(secs)
     except (ValueError, TypeError):
         return None
 
-
-def seconds_to_time(seconds: float | None) -> str:
-    if seconds is None or pd.isna(seconds):
+def seconds_to_time(sec):
+    if sec is None or pd.isna(sec):
         return "--"
-    mins = int(seconds // 60)
-    rem_sec = seconds % 60
+    mins = int(sec // 60)
+    remainder = sec % 60
     if mins > 0:
-        return f"{mins}:{rem_sec:05.2f}"
-    return f"{rem_sec:05.2f}"
+        return f"{mins}:{remainder:05.2f}"
+    return f"{remainder:05.2f}"
 
+def evaluate_pace(pb_sec, target_sec):
+    """Calculates status, gap text, CSS badge class, and percentage pace."""
+    if pb_sec is None or target_sec is None or pd.isna(pb_sec) or pd.isna(target_sec):
+        return "No Standard", "--", "badge-n", 0.0
+    try:
+        p = float(pb_sec)
+        t = float(target_sec)
+    except (ValueError, TypeError):
+        return "No Standard", "--", "badge-n", 0.0
 
-# ==========================================
-# GALA ORDER SORTING KEY
-# ==========================================
-def event_sort_key(event_name: str) -> tuple:
+    gap = p - t
+    pct = min(max((t / p) * 100.0 if p > 0 else 0, 0), 100)
+
+    if gap <= 0:
+        return "Qualified 🎯", f"-{abs(gap):.2f}s", "badge-q", pct
+    elif gap <= 1.0:
+        return "Within 1s ⚡", f"+{gap:.2f}s", "badge-w", pct
+    else:
+        return "Chasing ⏱️", f"+{gap:.2f}s", "badge-c", pct
+
+# ==============================================================================
+# 4. GALA SEQUENCE ENGINE (FREE -> BACK -> BREAST -> FLY -> IM & DISTANCE)
+# ==============================================================================
+def gala_order_key(event_name):
     name = str(event_name).lower()
     if "free" in name:
-        stroke_rank = 1
+        stroke = 1
     elif "back" in name:
-        stroke_rank = 2
+        stroke = 2
     elif "breast" in name:
-        stroke_rank = 3
+        stroke = 3
     elif "fly" in name or "butterfly" in name:
-        stroke_rank = 4
+        stroke = 4
     elif "medley" in name or "im" in name:
-        stroke_rank = 5
+        stroke = 5
     else:
-        stroke_rank = 6
+        stroke = 6
 
     dist_match = re.search(r"\d+", name)
     dist = int(dist_match.group(0)) if dist_match else 9999
-    return (stroke_rank, dist, name)
+    return (stroke, dist, name)
 
-
-# ==========================================
-# PARSER ENGINE FOR PB CONTENT
-# ==========================================
-def parse_swim_content(content_str: str):
-    if not content_str or not content_str.strip():
+# ==============================================================================
+# 5. DATA INGESTION & CLIPBOARD PARSERS
+# ==============================================================================
+def parse_swim_england_table(raw_content):
+    if not raw_content or not str(raw_content).strip():
         return None
 
     records = []
     event_pattern = re.compile(
-        r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b", re.I
+        r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b",
+        re.I,
     )
     time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
-    if "<table" in content_str.lower() or "<tr" in content_str.lower():
-        soup = BeautifulSoup(content_str, "html.parser")
+    # Branch A: HTML structure
+    if "<table" in raw_content.lower() or "<tr" in raw_content.lower():
+        soup = BeautifulSoup(raw_content, "html.parser")
         for table in soup.find_all("table"):
             table_txt = str(table).upper()
             prev_node = table.find_previous(["h2", "h3", "h4", "h5", "caption", "p"])
-            prev_heading = prev_node.get_text(strip=True).upper() if prev_node else ""
-            full_context = prev_heading + " " + table_txt[:300]
+            ctx = (prev_node.get_text(strip=True).upper() if prev_node else "") + " " + table_txt[:300]
 
-            is_lc = ("LONG COURSE" in full_context) or ("50M" in full_context)
-            course_lbl = "Long Course (50m)" if is_lc else "Short Course (25m)"
-            conv_lbl = "Converted to SC" if is_lc else "Converted to LC"
+            is_lc = ("LONG COURSE" in ctx) or ("50M" in ctx)
+            c_name = "Long Course (50m)" if is_lc else "Short Course (25m)"
+            conv_lbl = "Conv to SC" if is_lc else "Conv to LC"
 
-            for row in table.find_all("tr"):
-                cells = row.find_all(["td", "th"])
+            for tr in table.find_all("tr"):
+                cells = [td.get_text(" ", strip=True) for td in tr.find_all(["td", "th"])]
                 if len(cells) < 2:
                     continue
-                cell_texts = [c.get_text(" ", strip=True) for c in cells]
-                first_cell = cell_texts[0]
-
-                if not (re.search(r"\d+", first_cell) and event_pattern.search(first_cell)):
+                ev_candidate = cells[0]
+                if not (re.search(r"\d+", ev_candidate) and event_pattern.search(ev_candidate)):
                     continue
 
-                times_found = []
-                for ct in cell_texts[1:]:
-                    match = time_regex.search(ct)
-                    if match:
-                        times_found.append(match.group(0))
-
-                if not times_found:
+                times = []
+                for cell in cells[1:]:
+                    m = time_regex.search(cell)
+                    if m:
+                        times.append(m.group(0))
+                if not times:
                     continue
 
-                actual_time = times_found[0]
-                actual_sec = time_to_seconds(actual_time)
-                conv_time = times_found[1] if len(times_found) > 1 else "--"
-                conv_sec = time_to_seconds(conv_time)
+                pb_t = times[0]
+                pb_s = time_to_seconds(pb_t)
+                conv_t = times[1] if len(times) > 1 else "--"
+                conv_s = time_to_seconds(conv_t)
 
                 records.append({
-                    "Course": course_lbl,
-                    "Event": first_cell,
-                    "PB_Time": actual_time,
-                    "PB_Sec": actual_sec,
+                    "Course": c_name,
+                    "Event": ev_candidate,
+                    "PB_Time": pb_t,
+                    "PB_Sec": pb_s,
                     "Conv_Label": conv_lbl,
-                    "Conv_Time": conv_time,
-                    "Conv_Sec": conv_sec,
+                    "Conv_Time": conv_t,
+                    "Conv_Sec": conv_s,
                 })
 
+    # Branch B: Plain Text fallback
     if not records:
-        current_course = "Short Course (25m)"
-        for line in content_str.split("\n"):
+        current_c = "Short Course (25m)"
+        for line in raw_content.split("\n"):
             line_str = line.strip()
-            if "LONG COURSE" in line_str.upper() or "50M" in line_str.upper():
-                current_course = "Long Course (50m)"
+            u_line = line_str.upper()
+            if "LONG COURSE" in u_line or "50M" in u_line:
+                current_c = "Long Course (50m)"
                 continue
-            elif "SHORT COURSE" in line_str.upper() or "25M" in line_str.upper():
-                current_course = "Short Course (25m)"
+            elif "SHORT COURSE" in u_line or "25M" in u_line:
+                current_c = "Short Course (25m)"
                 continue
 
             if event_pattern.search(line_str) and re.search(r"\d+", line_str):
                 times = time_regex.findall(line_str)
                 if times:
                     idx = line_str.find(times[0])
-                    event_part = line_str[:idx].strip(" \t-:,")
-                    actual_time = times[0]
-                    actual_sec = time_to_seconds(actual_time)
-                    conv_time = times[1] if len(times) > 1 else "--"
-                    conv_sec = time_to_seconds(conv_time)
-                    conv_lbl = "Converted to SC" if current_course == "Long Course (50m)" else "Converted to LC"
+                    ev_cand = line_str[:idx].strip(" \t-:,")
+                    pb_t = times[0]
+                    pb_s = time_to_seconds(pb_t)
+                    conv_t = times[1] if len(times) > 1 else "--"
+                    conv_s = time_to_seconds(conv_t)
+                    conv_lbl = "Conv to SC" if current_c == "Long Course (50m)" else "Conv to LC"
 
                     records.append({
-                        "Course": current_course,
-                        "Event": event_part if event_part else "Swim Event",
-                        "PB_Time": actual_time,
-                        "PB_Sec": actual_sec,
+                        "Course": current_c,
+                        "Event": ev_cand if ev_cand else "Swim Event",
+                        "PB_Time": pb_t,
+                        "PB_Sec": pb_s,
                         "Conv_Label": conv_lbl,
-                        "Conv_Time": conv_time,
-                        "Conv_Sec": conv_sec,
+                        "Conv_Time": conv_t,
+                        "Conv_Sec": conv_s,
                     })
 
     if not records:
         return None
+    return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
-    df = pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
-    return df
-
-
-# ==========================================
-# GOOGLE SHEETS / TSV TARGETS PARSER
-# ==========================================
-def parse_google_sheets_targets(tsv_str: str, default_course: str):
-    if not tsv_str or not tsv_str.strip():
+def parse_google_sheets_tsv(tsv_data, default_course):
+    if not tsv_data or not str(tsv_data).strip():
         return 0
-
-    lines = [ln.strip() for ln in tsv_str.strip().split("\n") if ln.strip()]
+    lines = [ln.strip() for ln in str(tsv_data).strip().split("\n") if ln.strip()]
     if not lines:
         return 0
 
     sep = "\t" if "\t" in lines[0] else ","
     try:
-        df_raw = pd.read_csv(io.StringIO("\n".join(lines)), sep=sep)
+        df = pd.read_csv(io.StringIO("\n".join(lines)), sep=sep)
     except Exception:
         return 0
 
-    if df_raw.empty or df_raw.shape[1] < 2:
+    if df.empty or df.shape[1] < 2:
         return 0
 
-    event_col = df_raw.columns[0]
-    count_saved = 0
+    ev_col = df.columns[0]
+    saved_count = 0
 
-    for _, row in df_raw.iterrows():
-        ev_name = str(row[event_col]).strip()
-        if not ev_name:
+    for _, row in df.iterrows():
+        ev = str(row[ev_col]).strip()
+        if not ev:
             continue
-
-        for col in df_raw.columns[1:]:
-            col_clean = str(col).lower()
-            val_str = str(row[col]).strip()
-            val_sec = time_to_seconds(val_str)
-            if val_sec is None:
+        for col in df.columns[1:]:
+            col_l = str(col).lower()
+            val_s = str(row[col]).strip()
+            sec = time_to_seconds(val_s)
+            if sec is None:
                 continue
 
             meet = "Yorkshires"
-            if "ner winter" in col_clean:
+            if "ner winter" in col_l:
                 meet = "NER Winter"
-            elif "ner" in col_clean:
+            elif "ner" in col_l:
                 meet = "NERs"
-            elif "yorkshire winter" in col_clean or "yks winter" in col_clean:
+            elif "yorkshire winter" in col_l or "yks winter" in col_l:
                 meet = "Yorkshire Winter"
 
-            age = "12" if "12" in col_clean else "11"
-
+            age = "12" if "12" in col_l else "11"
             course = default_course
-            if "long" in col_clean or "50m" in col_clean or "lc" in col_clean:
+            if "long" in col_l or "50m" in col_l or "lc" in col_l:
                 course = "Long Course (50m)"
-            elif "short" in col_clean or "25m" in col_clean or "sc" in col_clean:
+            elif "short" in col_l or "25m" in col_l or "sc" in col_l:
                 course = "Short Course (25m)"
 
-            target_key = (meet, age, course, ev_name.lower())
-            st.session_state.multi_targets[target_key] = {
-                "time_str": val_str,
-                "seconds": val_sec,
-            }
-            count_saved += 1
+            key = (meet, age, course, ev.lower())
+            st.session_state.standards_db[key] = {"time": val_s, "sec": sec}
+            saved_count += 1
 
-    return count_saved
+    return saved_count
 
+# ==============================================================================
+# 6. SESSION STATE INITIALIZATION
+# ==============================================================================
+if "swimmer_df" not in st.session_state:
+    st.session_state.swimmer_df = None
 
-# ==========================================
-# STATUS EVALUATOR
-# ==========================================
-def evaluate_cut(pb_sec, target_sec):
-    if target_sec is None or pb_sec is None or pd.isna(target_sec) or pd.isna(pb_sec):
-        return "No Standard", "--", "badge-gray", 0.0
+if "standards_db" not in st.session_state:
+    st.session_state.standards_db = {}
 
-    try:
-        t_sec = float(target_sec)
-        p_sec = float(pb_sec)
-    except (ValueError, TypeError):
-        return "No Standard", "--", "badge-gray", 0.0
+def lookup_standard(meet, age, course, event_name):
+    key = (meet, age, course, str(event_name).lower())
+    if key in st.session_state.standards_db:
+        return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
-    diff = p_sec - t_sec
-    pct = min(max((t_sec / p_sec) * 100.0 if p_sec > 0 else 0, 0), 100)
+    clean_ev = re.sub(r"[^a-z0-9]", "", str(event_name).lower())
+    for (m, a, c, e), data in st.session_state.standards_db.items():
+        if m == meet and a == age and c == course and re.sub(r"[^a-z0-9]", "", e) == clean_ev:
+            return data["time"], data["sec"]
 
-    if diff <= 0:
-        return "Qualified 🎯", f"-{abs(diff):.2f}s", "badge-green", pct
-    elif diff <= 1.0:
-        return "Within 1s ⚡", f"+{diff:.2f}s", "badge-orange", pct
-    else:
-        return "Chasing ⏱️", f"+{diff:.2f}s", "badge-red", pct
+    return None, None
 
-
-# ==========================================
-# SESSION STATE INITIALIZATION
-# ==========================================
-if "jessica_pbs_df" not in st.session_state:
-    st.session_state.jessica_pbs_df = None
-
-if "multi_targets" not in st.session_state:
-    st.session_state.multi_targets = {}
-
-# ==========================================
-# CITY OF LEEDS CLUB HEADER
-# ==========================================
-header_html = (
-    '<div class="leeds-header">\n'
-    '  <div>\n'
-    f'    <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>\n'
-    '    <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; CHAMPIONSHIP STANDARDS TRACKER</div>\n'
-    '    <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">\n'
-    f'      Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; \n'
-    f'      <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>\n'
-    '    </div>\n'
-    '  </div>\n'
-    '  <div>\n'
-    f'    <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display=\'none\'">\n'
-    '  </div>\n'
-    '</div>\n'
-)
-st.markdown(header_html, unsafe_allow_html=True)
-
-# ==========================================
-# SYNC MODAL FOR SWIM RESULTS
-# ==========================================
-with st.expander("📥 Sync / Update Jessica's Times", expanded=(st.session_state.jessica_pbs_df is None)):
-    instructions = (
-        "**Update times from Swim England:**\n"
-        f"1. Open: [Jessica's Swim England Rankings Page]({SWIMMER_URL})\n"
-        "2. Select all and copy the table.\n"
-        "3. Paste below and tap **Parse & Save Times**."
+# ==============================================================================
+# 7. CLUB HEADER INTERFACE
+# ==============================================================================
+head_col1, head_col2 = st.columns([4, 1])
+with head_col1:
+    st.title(f"🏊‍♀️ {SWIMMER_NAME}")
+    st.markdown(
+        f"**City of Leeds Swimming Club** &bull; Swim England: `{SWIMMER_TIREF}` &bull; "
+        f"[Official Rankings Profile]({SWIMMER_URL})"
     )
-    st.markdown(instructions)
-    pasted_data = st.text_area(
-        "Paste page content or table rows here:",
-        height=120,
-        placeholder="Paste copied text or HTML from swimmingresults.org..."
-    )
-    if st.button("🚀 Parse & Save Times", use_container_width=True):
-        parsed = parse_swim_content(pasted_data)
+with head_col2:
+    st.image(CLUB_LOGO_URL, width=120)
+
+st.markdown("---")
+
+# ==============================================================================
+# 8. DATA INGESTION WORKFLOW EXPANDERS
+# ==============================================================================
+with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(st.session_state.swimmer_df is None)):
+    st.write("1. Open Jessica's Swim England profile using the link above.")
+    st.write("2. Select all content from the page table, copy it, and paste it into the box below:")
+    raw_input = st.text_area("Paste table content here:", height=110, placeholder="Paste Swim England table text or HTML...")
+    if st.button("🚀 Process & Store Times", use_container_width=True):
+        parsed = parse_swim_england_table(raw_input)
         if parsed is not None and not parsed.empty:
-            st.session_state.jessica_pbs_df = parsed
-            st.success(f"Successfully loaded {len(parsed)} swim times!")
+            st.session_state.swimmer_df = parsed
+            st.success(f"Successfully captured {len(parsed)} swim times!")
             st.rerun()
         else:
-            st.error("No valid swim times found. Ensure you copy the table containing events and times.")
+            st.error("No valid times found. Please check that table rows were included.")
 
-df_pbs = st.session_state.jessica_pbs_df
-
-if df_pbs is None or df_pbs.empty:
-    st.info("👆 Tap the expander above to paste Jessica's table. Once pasted, all consolidated event cards will display.")
+if st.session_state.swimmer_df is None:
+    st.info("Paste and process Jessica's table above to load the tracking dashboard.")
     st.stop()
 
-# ==========================================
-# TARGET TIMES IMPORTER
-# ==========================================
-with st.expander("🎯 Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
-    tab_bulk, tab_single = st.tabs(["📋 Paste from Google Sheets", "✏️ Single Event Entry"])
+df = st.session_state.swimmer_df
+
+with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
+    tab_bulk, tab_single = st.tabs(["📋 Bulk Paste from Google Sheets", "✏️ Single Event Entry"])
 
     with tab_bulk:
-        bulk_desc = (
-            "**Copy columns straight from Google Sheets / Excel.**\n\n"
-            "Format example with header row:\n"
-            "```text\n"
-            "Event\tYorkshires 11\tYorkshires 12\tNER 11\tNER 12\n"
-            "50 Freestyle\t33.50\t31.80\t32.00\t30.50\n"
-            "100 Freestyle\t1:13.00\t1:08.50\t1:10.00\t1:06.00\n"
-            "
+        st.write("Copy and paste cells directly from Google Sheets or Excel with headers like `Event`, `Yorkshires 11`, `NER 12`, etc.:")
+        b_course = st.selectbox("Assign Course for Copied Block:", ["Short Course (25m)", "Long Course (50m)"])
+        tsv_paste = st.text_area("Paste spreadsheet cells here:", height=110)
+        if st.button("📥 Import Standards", use_container_width=True):
+            count = parse_google_sheets_tsv(tsv_paste, b_course)
+            if count > 0:
+                st.success(f"Loaded and saved {count} standards!")
+                st.rerun()
+            else:
+                st.error("Unable to parse. Ensure first column contains event names and headers include meet names.")
+
+    with tab_single:
+        all_evs = sorted(df["Event"].unique().tolist(), key=gala_order_key)
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            s_ev = st.selectbox("Event", all_evs)
+            s_course = st.selectbox("Course", ["Short Course (25m)", "Long Course (50m)"])
+        with col_s2:
+            s_meet = st.selectbox("Meet", ["Yorkshires", "Yorkshire Winter", "NERs", "NER Winter"])
+            s_age = st.selectbox("Age Band", ["11", "12"])
+        with col_s3:
+            s_val = st.text_input("Target Cut (e.g. 32.50)")
+            if st.button("💾 Save Standard", use_container_width=True):
+                sec = time_to_seconds(s_val)
+                if sec:
+                    st.session_state.standards_db[(s_meet, s_age, s_course, s_ev.lower())] = {"time": s_val.strip(), "sec": sec}
+                    st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
+                    st.rerun()
+
+# ==============================================================================
+# 9. DASHBOARD CONTROLS & FILTERING
+# ==============================================================================
+f_col1, f_col2 = st.columns([1, 2])
+with f_col1:
+    active_age = st.radio("🎯 **Active Age Band for Progress Gauges:**", ["11", "12"], horizontal=True, index=0)
+with f_col2:
+    selected_stroke = st.radio(
+        "🏊 **Filter by Stroke:**",
+        ["All Events", "Freestyle", "Backstroke", "Breaststroke", "Butterfly", "Individual Medley"],
+        horizontal=True,
+    )
+
+# Unique Events Gala Sort
+unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
+
+# Calculate Unique Yorkshires Cuts for Active Age
+unique_yks_cuts = 0
+for ev in unique_events:
+    sub = df[df["Event"] == ev]
+    is_q = False
+    for _, r in sub.iterrows():
+        _, target_s = lookup_standard("Yorkshires", active_age, r["Course"], ev)
+        if target_s is not None:
+            if r["PB_Sec"] is not None and r["PB_Sec"] <= target_s:
+                is_q = True
+                break
+            if r["Conv_Sec"] is not None and r["Conv_Sec"] <= target_s:
+                is_q = True
+                break
+    if is_q:
+        unique_yks_cuts += 1
+
+# Metric Row
+m1, m2, m3, m4 = st.columns(4)
+m1.metric(f"Unique Yorkshires (Age {active_age})", unique_yks_cuts)
+m2.metric("Total Events Logged", len(unique_events))
+m3.metric("Total Recorded PBs", len(df))
+m4.metric("Standards Configured", len(st.session_state.standards_db))
+
+st.markdown("---")
+
+# ==============================================================================
+# 10. UNIFIED EVENT CARDS (CLEAN UI COMPONENTS, ZERO STRING ERRORS)
+# ==============================================================================
+for ev in unique_events:
+    if selected_stroke != "All Events" and selected_stroke.lower() not in ev.lower():
+        continue
+
+    ev_rows = df[df["Event"] == ev]
+    lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
+    sc_sub = ev_rows[ev_rows["Course"] == "Short Course (25m)"]
+
+    with st.container():
+        st.subheader(f"🏊 {ev}")
+
+        # --- 1. LONG COURSE ROW ---
+        if not lc_sub.empty:
+            lc_r = lc_sub.iloc[0]
+            col_l, col_r = st.columns([1, 1])
+
+            # Retrieve targets
+            y11_t, y11_s = lookup_standard("Yorkshires", "11", "Long Course (50m)", ev)
+            y12_t, y12_s = lookup_standard("Yorkshires", "12", "Long Course (50m)", ev)
+            n11_t, n11_s = lookup_standard("NERs", "11", "Long Course (50m)", ev)
+            n12_t, n12_s = lookup_standard("NERs", "12", "Long Course (50m)", ev)
+            yw_t, _ = lookup_standard("Yorkshire Winter", active_age, "Long Course (50m)", ev)
+            nw_t, _ = lookup_standard("NER Winter", active_age, "Long Course (50m)", ev)
+
+            # Evaluate
+            ev_y11 = evaluate_pace(lc_r["PB_Sec"], y11_s)
+            ev_y12 = evaluate_pace(lc_r["PB_Sec"], y12_s)
+            ev_n11 = evaluate_pace(lc_r["PB_Sec"], n11_s)
+            ev_n12 = evaluate_pace(lc_r["PB_Sec"], n12_s)
+
+            with col_l:
+                st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
+                st.markdown(
+                    f"**Yorkshires:** Age 11: `{y11_t or '--'}` ({ev_y11[1]}) &bull; "
+                    f"Age 12: `{y12_t or '--'}` ({ev_y12[1]})"
+                )
+                st.markdown(
+                    f"**NERs:** Age 11: `{n11_t or '--'}` ({ev_n11[1]}) &bull; "
+                    f"Age 12: `{n12_t or '--'}` ({ev_n12[1]})"
+                )
+                st.markdown(
+                    f"**Winter (Age {active_age}):** YKS: `{yw_t or '--'}` &bull; NER: `{nw_t or '--'}`"
+                )
+
+            with col_r:
+                act_y_s = y11_s if active_age == "11" else y12_s
+                act_n_s = n11_s if active_age == "11" else n12_s
+                if act_y_s is not None:
+                    res_y = evaluate_pace(lc_r["PB_Sec"], act_y_s)
+                    st.caption(f"LC Yorkshires (Age {active_age}): {res_y[0]} ({res_y[3]:.1f}%)")
+                    st.progress(res_y[3] / 100.0)
+                if act_n_s is not None:
+                    res_n = evaluate_pace(lc_r["PB_Sec"], act_n_s)
+                    st.caption(f"LC NERs (Age {active_age}): {res_n[0]} ({res_n[3]:.1f}%)")
+                    st.progress(res_n[3] / 100.0)
+        else:
+            st.caption("No official Long Course (50m) PB recorded for this event.")
+
+        st.markdown("---")
+
+        # --- 2. SHORT COURSE ROW ---
+        if not sc_sub.empty:
+            sc_r = sc_sub.iloc[0]
+            col_sl, col_sr = st.columns([1, 1])
+
+            # Retrieve targets
+            sy11_t, sy11_s = lookup_standard("Yorkshires", "11", "Short Course (25m)", ev)
+            sy12_t, sy12_s = lookup_standard("Yorkshires", "12", "Short Course (25m)", ev)
+            sn11_t, sn11_s = lookup_standard("NERs", "11", "Short Course (25m)", ev)
+            sn12_t, sn12_s = lookup_standard("NERs", "12", "Short Course (25m)", ev)
+            syw_t, _ = lookup_standard("Yorkshire Winter", active_age, "Short Course (25m)", ev)
+            snw_t, _ = lookup_standard("NER Winter", active_age, "Short Course (25m)", ev)
+
+            # Evaluate
+            s_ev_y11 = evaluate_pace(sc_r["PB_Sec"], sy11_s)
+            s_ev_y12 = evaluate_pace(sc_r["PB_Sec"], sy12_s)
+            s_ev_n11 = evaluate_pace(sc_r["PB_Sec"], sn11_s)
+            s_ev_n12 = evaluate_pace(sc_r["PB_Sec"], sn12_s)
+
+            with col_sl:
+                st.markdown(f"**🏊‍♀️ SC PB:** `{sc_r['PB_Time']}` &nbsp;|&nbsp; Conv LC: `{sc_r['Conv_Time']}`")
+                st.markdown(
+                    f"**Yorkshires:** Age 11: `{sy11_t or '--'}` ({s_ev_y11[1]}) &bull; "
+                    f"Age 12: `{sy12_t or '--'}` ({s_ev_y12[1]})"
+                )
+                st.markdown(
+                    f"**NERs:** Age 11: `{sn11_t or '--'}` ({s_ev_n11[1]}) &bull; "
+                    f"Age 12: `{sn12_t or '--'}` ({s_ev_n12[1]})"
+                )
+                st.markdown(
+                    f"**Winter (Age {active_age}):** YKS: `{syw_t or '--'}` &bull; NER: `{snw_t or '--'}`"
+                )
+
+            with col_sr:
+                act_sy_s = sy11_s if active_age == "11" else sy12_s
+                act_sn_s = sn11_s if active_age == "11" else sn12_s
+                if act_sy_s is not None:
+                    res_sy = evaluate_pace(sc_r["PB_Sec"], act_sy_s)
+                    st.caption(f"SC Yorkshires (Age {active_age}): {res_sy[0]} ({res_sy[3]:.1f}%)")
+                    st.progress(res_sy[3] / 100.0)
+                if act_sn_s is not None:
+                    res_sn = evaluate_pace(sc_r["PB_Sec"], act_sn_s)
+                    st.caption(f"SC NERs (Age {active_age}): {res_sn[0]} ({res_sn[3]:.1f}%)")
+                    st.progress(res_sn[3] / 100.0)
+        else:
+            st.caption("No official Short Course (25m) PB recorded for this event.")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+# ==============================================================================
+# 11. TABULAR SUMMARY VIEW
+# ==============================================================================
+with st.expander("📋 Tabular View of All Swims"):
+    summary_rows = []
+    for _, r in df.iterrows():
+        y_cut, y_s = lookup_standard("Yorkshires", active_age, r["Course"], r["Event"])
+        n_cut, n_s = lookup_standard("NERs", active_age, r["Course"], r["Event"])
+        res_y = evaluate_pace(r["PB_Sec"], y_s)
+        res_n = evaluate_pace(r["PB_Sec"], n_s)
+
+        summary_rows.append({
+            "Course": r["Course"],
+            "Event": r["Event"],
+            "PB Time": r["PB_Time"],
+            "Converted Time": r["Conv_Time"],
+            f"Yorkshires ({active_age}) Cut": y_cut or "--",
+            "YKS Status": res_y[0],
+            "YKS Gap": res_y[1],
+            f"NERs ({active_age}) Cut": n_cut or "--",
+            "NER Status": res_n[0],
+            "NER Gap": res_n[1],
+        })
+
+    view_df = pd.DataFrame(summary_rows)
+    view_df["sort"] = view_df["Event"].apply(gala_order_key)
+    view_df = view_df.sort_values(by="sort").drop(columns=["sort"])
+    st.dataframe(view_df, use_container_width=True, hide_index=True)
