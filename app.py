@@ -65,6 +65,14 @@ st.markdown(
         border-radius: 8px;
         padding: 12px 16px;
     }
+    .summary-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -390,7 +398,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Seek the real header line containing standalone 11 and an event keyword
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
@@ -445,7 +452,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     comp_col = None
     event_col = None
 
-    # Detect Competition Column
     for col in df.columns:
         col_c = str(col).strip().lower()
         if any(k in col_c for k in ["comp", "meet", "championship"]):
@@ -464,7 +470,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # STRICT AGE 11 & AGE 12 COLUMN ANCHORING (Rejects 17+, Over, 17/OV)
     col_age_11 = None
     col_age_12 = None
 
@@ -473,15 +478,12 @@ def parse_standards_dataframe(df_raw, default_meet):
             continue
         c_str = str(col).strip().lower()
 
-        # Hard refusal of any column with 17, 18, 19, over, or +
         if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]):
             continue
 
-        # Look specifically for isolated 11
         if re.search(r"(?<!\d)11(?!\d)", c_str):
             if col_age_11 is None:
                 col_age_11 = col
-        # Look specifically for isolated 12
         elif re.search(r"(?<!\d)12(?!\d)", c_str):
             if col_age_12 is None:
                 col_age_12 = col
@@ -499,7 +501,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     current_meet = default_meet
 
     for _, row in df.iterrows():
-        # Check Column A for meet switches
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
             current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
@@ -632,7 +633,6 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                         st.dataframe(df_sheet.head(5), use_container_width=True)
 
                     if sync_btn:
-                        # Clear old memory cache to prevent stale cross-meet contamination
                         st.session_state.standards_db = {}
                         count, msg = parse_standards_dataframe(df_sheet, sheet_meet)
                         if count > 0:
@@ -684,7 +684,6 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev} as {disp_str}!")
                     st.rerun()
 
-    # Active Database Inspector & Clear Option
     with st.expander("📊 View Currently Saved Standards in Memory", expanded=False):
         if st.session_state.standards_db:
             db_list = [
@@ -699,42 +698,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
         else:
             st.info("No standards currently saved in app memory. Tap 'Sync Directly from Google Sheet' above.")
 
-# Download JSON Backups
-with st.expander("💾 Download / Backup Permanent JSON Files", expanded=False):
-    st.write("Download these files to commit them to your GitHub repository for permanent offline backups:")
-    c_dl1, c_dl2 = st.columns(2)
-    with c_dl1:
-        pbs_json_str = json.dumps(df.to_dict(orient="records"), indent=2)
-        st.download_button(
-            "📥 Download jessica_pbs.json",
-            data=pbs_json_str,
-            file_name="jessica_pbs.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-    with c_dl2:
-        std_serializable = {f"{k[0]}|||{k[1]}|||{k[2]}": v for k, v in st.session_state.standards_db.items()}
-        st.download_button(
-            "📥 Download standards.json",
-            data=json.dumps(std_serializable, indent=2),
-            file_name="standards.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
-# ==============================================================================
-# 11. DASHBOARD FILTERS & KPI
-# ==============================================================================
-f_col1, f_col2 = st.columns([1, 2])
-with f_col1:
-    active_age = st.radio("🎯 **Active Age Band for Progress Gauges:**", ["11", "12"], horizontal=True, index=0)
-with f_col2:
-    selected_stroke = st.radio(
-        "🏊 **Filter by Stroke:**",
-        ["All Events", "Freestyle", "Backstroke", "Breaststroke", "Butterfly", "Individual Medley"],
-        horizontal=True,
-    )
-
+# Helpers for eligible time lookups
 unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
 
 def get_best_eligible_times(ev):
@@ -754,144 +718,280 @@ def get_best_eligible_times(ev):
 
     return best_lc_sec, best_sc_sec
 
-# Calculate Unique Yorkshire LC Cuts for Active Age
-unique_yks_cuts = 0
-for ev in unique_events:
-    best_lc_sec, _ = get_best_eligible_times(ev)
-    _, target_s = lookup_standard("Yorkshire LC", active_age, ev)
-    if target_s is not None and best_lc_sec is not None and best_lc_sec <= target_s:
-        unique_yks_cuts += 1
+# ==============================================================================
+# 11. TOP-LEVEL APPLICATION NAVIGATION TABS
+# ==============================================================================
+main_tab_events, main_tab_summary = st.tabs([
+    "📊 Event-by-Event Tracker",
+    "🏆 Championship Summary & Tracker"
+])
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric(f"Unique Yorkshire LC Cuts (Age {active_age})", unique_yks_cuts)
-m2.metric("Total Events Logged", len(unique_events))
-m3.metric("Total Recorded PBs", len(df))
-m4.metric("Standards Configured", len(st.session_state.standards_db))
+# ------------------------------------------------------------------------------
+# TAB 1: DETAILED EVENT CARDS
+# ------------------------------------------------------------------------------
+with main_tab_events:
+    f_col1, f_col2 = st.columns([1, 2])
+    with f_col1:
+        active_age = st.radio("🎯 **Active Target Age:**", ["11", "12"], horizontal=True, index=0, key="age_events_tab")
+    with f_col2:
+        selected_stroke = st.radio(
+            "🏊 **Filter by Stroke:**",
+            ["All Events", "Freestyle", "Backstroke", "Breaststroke", "Butterfly", "Individual Medley"],
+            horizontal=True,
+            key="stroke_filter_tab"
+        )
 
-st.markdown("---")
+    # Calculate Unique Yorkshire LC Cuts for Active Age
+    unique_yks_cuts = 0
+    for ev in unique_events:
+        best_lc_sec, _ = get_best_eligible_times(ev)
+        _, target_s = lookup_standard("Yorkshire LC", active_age, ev)
+        if target_s is not None and best_lc_sec is not None and best_lc_sec <= target_s:
+            unique_yks_cuts += 1
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(f"Unique Yorkshire LC Cuts (Age {active_age})", unique_yks_cuts)
+    m2.metric("Total Events Logged", len(unique_events))
+    m3.metric("Total Recorded PBs", len(df))
+    m4.metric("Standards Configured", len(st.session_state.standards_db))
+
+    st.markdown("---")
+
+    for ev in unique_events:
+        if selected_stroke != "All Events" and selected_stroke.lower() not in ev.lower():
+            continue
+
+        ev_rows = df[df["Event"] == ev]
+        lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
+        sc_sub = ev_rows[ev_rows["Course"] == "Short Course (25m)"]
+
+        best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
+
+        yks_lc_11_t, yks_lc_11_s = lookup_standard("Yorkshire LC", "11", ev)
+        yks_lc_12_t, yks_lc_12_s = lookup_standard("Yorkshire LC", "12", ev)
+        yks_sc_11_t, yks_sc_11_s = lookup_standard("Yorkshire SC (Winter)", "11", ev)
+        yks_sc_12_t, yks_sc_12_s = lookup_standard("Yorkshire SC (Winter)", "12", ev)
+
+        ner_lc_11_t, ner_lc_11_s = lookup_standard("NER LC", "11", ev)
+        ner_lc_12_t, ner_lc_12_s = lookup_standard("NER LC", "12", ev)
+        ner_sc_11_t, ner_sc_11_s = lookup_standard("NER SC (Winter)", "11", ev)
+        ner_sc_12_t, ner_sc_12_s = lookup_standard("NER SC (Winter)", "12", ev)
+
+        eval_yks_lc_11 = evaluate_pace(best_lc_sec, yks_lc_11_s)
+        eval_yks_lc_12 = evaluate_pace(best_lc_sec, yks_lc_12_s)
+        eval_yks_sc_11 = evaluate_pace(best_sc_sec, yks_sc_11_s)
+        eval_yks_sc_12 = evaluate_pace(best_sc_sec, yks_sc_12_s)
+
+        eval_ner_lc_11 = evaluate_pace(best_lc_sec, ner_lc_11_s)
+        eval_ner_lc_12 = evaluate_pace(best_lc_sec, ner_lc_12_s)
+        eval_ner_sc_11 = evaluate_pace(best_sc_sec, ner_sc_11_s)
+        eval_ner_sc_12 = evaluate_pace(best_sc_sec, ner_sc_12_s)
+
+        with st.container():
+            st.subheader(f"🏊 {ev}")
+
+            card_left, card_right = st.columns([1, 1])
+
+            with card_left:
+                st.markdown('<div class="times-box">', unsafe_allow_html=True)
+                if not lc_sub.empty:
+                    lc_r = lc_sub.iloc[0]
+                    st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
+                else:
+                    st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
+
+                if not sc_sub.empty:
+                    sc_r = sc_sub.iloc[0]
+                    st.markdown(f"**🏊‍♀️ SC PB:** `{sc_r['PB_Time']}` &nbsp;|&nbsp; Conv LC: `{sc_r['Conv_Time']}`")
+                else:
+                    st.markdown("**🏊‍♀️ SC PB:** *No official SC PB recorded*")
+
+                st.caption(
+                    f"Reference Times &bull; Best LC Eligible: **`{format_display_time(best_lc_sec)}`** &bull; "
+                    f"Best SC Eligible: **`{format_display_time(best_sc_sec)}`**"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown('<div class="matrix-box">', unsafe_allow_html=True)
+                st.markdown(
+                    f"**Yorkshire LC:**  \n"
+                    f"Age 11: `{yks_lc_11_t or '--'}` &rarr; <span class='{eval_yks_lc_11[2]}'>{eval_yks_lc_11[1]} ({eval_yks_lc_11[0]})</span> &nbsp;|&nbsp; "
+                    f"Age 12: `{yks_lc_12_t or '--'}` &rarr; <span class='{eval_yks_lc_12[2]}'>{eval_yks_lc_12[1]} ({eval_yks_lc_12[0]})</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"**Yorkshire SC (Winter):**  \n"
+                    f"Age 11: `{yks_sc_11_t or '--'}` &rarr; <span class='{eval_yks_sc_11[2]}'>{eval_yks_sc_11[1]} ({eval_yks_sc_11[0]})</span> &nbsp;|&nbsp; "
+                    f"Age 12: `{yks_sc_12_t or '--'}` &rarr; <span class='{eval_yks_sc_12[2]}'>{eval_yks_sc_12[1]} ({eval_yks_sc_12[0]})</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"**NER LC:**  \n"
+                    f"Age 11: `{ner_lc_11_t or '--'}` &rarr; <span class='{eval_ner_lc_11[2]}'>{eval_ner_lc_11[1]} ({eval_ner_lc_11[0]})</span> &nbsp;|&nbsp; "
+                    f"Age 12: `{ner_lc_12_t or '--'}` &rarr; <span class='{eval_ner_lc_12[2]}'>{eval_ner_lc_12[1]} ({eval_ner_lc_12[0]})</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"**NER SC (Winter):**  \n"
+                    f"Age 11: `{ner_sc_11_t or '--'}` &rarr; <span class='{eval_ner_sc_11[2]}'>{eval_ner_sc_11[1]} ({eval_ner_sc_11[0]})</span> &nbsp;|&nbsp; "
+                    f"Age 12: `{ner_sc_12_t or '--'}` &rarr; <span class='{eval_ner_sc_12[2]}'>{eval_ner_sc_12[1]} ({eval_ner_sc_12[0]})</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with card_right:
+                st.write(f"**Championship Progress (Active: Age {active_age})**")
+
+                act_yks_lc_eval = eval_yks_lc_11 if active_age == "11" else eval_yks_lc_12
+                if act_yks_lc_eval[0] != "No Cut":
+                    st.caption(f"Yorkshire LC: {act_yks_lc_eval[0]} ({act_yks_lc_eval[3]:.1f}%)")
+                    st.progress(act_yks_lc_eval[3] / 100.0)
+                else:
+                    st.caption("Yorkshire LC: No target set.")
+
+                act_yks_sc_eval = eval_yks_sc_11 if active_age == "11" else eval_yks_sc_12
+                if act_yks_sc_eval[0] != "No Cut":
+                    st.caption(f"Yorkshire SC (Winter): {act_yks_sc_eval[0]} ({act_yks_sc_eval[3]:.1f}%)")
+                    st.progress(act_yks_sc_eval[3] / 100.0)
+                else:
+                    st.caption("Yorkshire SC (Winter): No target set.")
+
+                act_ner_lc_eval = eval_ner_lc_11 if active_age == "11" else eval_ner_lc_12
+                if act_ner_lc_eval[0] != "No Cut":
+                    st.caption(f"NER LC: {act_ner_lc_eval[0]} ({act_ner_lc_eval[3]:.1f}%)")
+                    st.progress(act_ner_lc_eval[3] / 100.0)
+                else:
+                    st.caption("NER LC: No target set.")
+
+                act_ner_sc_eval = eval_ner_sc_11 if active_age == "11" else eval_ner_sc_12
+                if act_ner_sc_eval[0] != "No Cut":
+                    st.caption(f"NER SC (Winter): {act_ner_sc_eval[0]} ({act_ner_sc_eval[3]:.1f}%)")
+                    st.progress(act_ner_sc_eval[3] / 100.0)
+                else:
+                    st.caption("NER SC (Winter): No target set.")
+
+            st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
+
+# ------------------------------------------------------------------------------
+# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER
+# ------------------------------------------------------------------------------
+with main_tab_summary:
+    sum_col1, sum_col2 = st.columns([1, 3])
+    with sum_col1:
+        summary_age = st.radio("🎯 **Target Age Category:**", ["11", "12"], horizontal=True, index=0, key="age_summary_tab")
+    with sum_col2:
+        st.info(f"Viewing all qualifications, close targets (<1s), and chasing events for **Age {summary_age}**.")
+
+    meets_list = [
+        {"title": "Yorkshire Long Course (LC)", "key": "Yorkshire LC", "course": "LC", "emoji": "🥇"},
+        {"title": "Yorkshire Short Course (Winter)", "key": "Yorkshire SC (Winter)", "course": "SC", "emoji": "❄️"},
+        {"title": "North East Region (NER) Long Course", "key": "NER LC", "course": "LC", "emoji": "🏊‍♂️"},
+        {"title": "North East Region (NER) Short Course (Winter)", "key": "NER SC (Winter)", "course": "SC", "emoji": "🏆"},
+    ]
+
+    for m_info in meets_list:
+        m_title = m_info["title"]
+        m_key = m_info["key"]
+        is_lc = (m_info["course"] == "LC")
+
+        qual_events = []
+        close_events = []
+        chasing_events = []
+
+        for ev in unique_events:
+            best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
+            ref_sec = best_lc_sec if is_lc else best_sc_sec
+
+            cut_str, cut_sec = lookup_standard(m_key, summary_age, ev)
+            if cut_sec is None or ref_sec is None:
+                continue
+
+            status, gap_str, badge_cls, _ = evaluate_pace(ref_sec, cut_sec)
+
+            record = {
+                "Event": ev,
+                "PB Time": format_display_time(ref_sec),
+                "Qualifying Cut": cut_str,
+                "Gap": gap_str,
+                "Badge": badge_cls,
+                "Sort": gala_order_key(ev),
+            }
+
+            if "Qualified" in status:
+                qual_events.append(record)
+            elif "Within 1s" in status:
+                close_events.append(record)
+            else:
+                chasing_events.append(record)
+
+        qual_events.sort(key=lambda x: x["Sort"])
+        close_events.sort(key=lambda x: x["Sort"])
+        chasing_events.sort(key=lambda x: x["Sort"])
+
+        total_configured = len(qual_events) + len(close_events) + len(chasing_events)
+
+        st.markdown(f'<div class="summary-card">', unsafe_allow_html=True)
+        st.subheader(f"{m_info['emoji']} {m_title} (Age {summary_age})")
+
+        # Top Metric Row for Competition
+        c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
+        c_kpi1.metric("Qualified 🎯", len(qual_events))
+        c_kpi2.metric("Within 1s ⚡", len(close_events))
+        c_kpi3.metric("Chasing ⏱️", len(chasing_events))
+        c_kpi4.metric("Standards Set", total_configured)
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+        if total_configured == 0:
+            st.caption(f"No qualifying standards currently configured for {m_key} (Age {summary_age}).")
+        else:
+            col_q, col_w, col_c = st.columns(3)
+
+            # Column 1: Qualified
+            with col_q:
+                st.markdown(f"**🎯 Qualified ({len(qual_events)})**")
+                if qual_events:
+                    for item in qual_events:
+                        st.markdown(
+                            f"&bull; **{item['Event']}**: `{item['PB Time']}` &nbsp;"
+                            f"<span class='txt-green'>({item['Gap']} under {item['Qualifying Cut']})</span>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No events qualified yet.")
+
+            # Column 2: Within 1 Second
+            with col_w:
+                st.markdown(f"**⚡ Within 1.0s ({len(close_events)})**")
+                if close_events:
+                    for item in close_events:
+                        st.markdown(
+                            f"&bull; **{item['Event']}**: `{item['PB Time']}` &nbsp;"
+                            f"<span class='txt-amber'>({item['Gap']} from {item['Qualifying Cut']})</span>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No events currently within 1.0s.")
+
+            # Column 3: Chasing
+            with col_c:
+                st.markdown(f"**⏱️ Chasing ({len(chasing_events)})**")
+                if chasing_events:
+                    for item in chasing_events:
+                        st.markdown(
+                            f"&bull; **{item['Event']}**: `{item['PB Time']}` &nbsp;"
+                            f"<span class='txt-red'>({item['Gap']} from {item['Qualifying Cut']})</span>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No other events in progress.")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 12. UNIFIED EVENT CARDS (ONE PB BLOCK + ONE QUALIFYING MATRIX)
+# 12. TABULAR VIEW OF ALL SWIMS
 # ==============================================================================
-for ev in unique_events:
-    if selected_stroke != "All Events" and selected_stroke.lower() not in ev.lower():
-        continue
-
-    ev_rows = df[df["Event"] == ev]
-    lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
-    sc_sub = ev_rows[ev_rows["Course"] == "Short Course (25m)"]
-
-    best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
-
-    yks_lc_11_t, yks_lc_11_s = lookup_standard("Yorkshire LC", "11", ev)
-    yks_lc_12_t, yks_lc_12_s = lookup_standard("Yorkshire LC", "12", ev)
-    yks_sc_11_t, yks_sc_11_s = lookup_standard("Yorkshire SC (Winter)", "11", ev)
-    yks_sc_12_t, yks_sc_12_s = lookup_standard("Yorkshire SC (Winter)", "12", ev)
-
-    ner_lc_11_t, ner_lc_11_s = lookup_standard("NER LC", "11", ev)
-    ner_lc_12_t, ner_lc_12_s = lookup_standard("NER LC", "12", ev)
-    ner_sc_11_t, ner_sc_11_s = lookup_standard("NER SC (Winter)", "11", ev)
-    ner_sc_12_t, ner_sc_12_s = lookup_standard("NER SC (Winter)", "12", ev)
-
-    eval_yks_lc_11 = evaluate_pace(best_lc_sec, yks_lc_11_s)
-    eval_yks_lc_12 = evaluate_pace(best_lc_sec, yks_lc_12_s)
-    eval_yks_sc_11 = evaluate_pace(best_sc_sec, yks_sc_11_s)
-    eval_yks_sc_12 = evaluate_pace(best_sc_sec, yks_sc_12_s)
-
-    eval_ner_lc_11 = evaluate_pace(best_lc_sec, ner_lc_11_s)
-    eval_ner_lc_12 = evaluate_pace(best_lc_sec, ner_lc_12_s)
-    eval_ner_sc_11 = evaluate_pace(best_sc_sec, ner_sc_11_s)
-    eval_ner_sc_12 = evaluate_pace(best_sc_sec, ner_sc_12_s)
-
-    with st.container():
-        st.subheader(f"🏊 {ev}")
-
-        card_left, card_right = st.columns([1, 1])
-
-        with card_left:
-            st.markdown('<div class="times-box">', unsafe_allow_html=True)
-            if not lc_sub.empty:
-                lc_r = lc_sub.iloc[0]
-                st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
-            else:
-                st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
-
-            if not sc_sub.empty:
-                sc_r = sc_sub.iloc[0]
-                st.markdown(f"**🏊‍♀️ SC PB:** `{sc_r['PB_Time']}` &nbsp;|&nbsp; Conv LC: `{sc_r['Conv_Time']}`")
-            else:
-                st.markdown("**🏊‍♀️ SC PB:** *No official SC PB recorded*")
-
-            st.caption(
-                f"Reference Times &bull; Best LC Eligible: **`{format_display_time(best_lc_sec)}`** &bull; "
-                f"Best SC Eligible: **`{format_display_time(best_sc_sec)}`**"
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown('<div class="matrix-box">', unsafe_allow_html=True)
-            st.markdown(
-                f"**Yorkshire LC:**  \n"
-                f"Age 11: `{yks_lc_11_t or '--'}` &rarr; <span class='{eval_yks_lc_11[2]}'>{eval_yks_lc_11[1]} ({eval_yks_lc_11[0]})</span> &nbsp;|&nbsp; "
-                f"Age 12: `{yks_lc_12_t or '--'}` &rarr; <span class='{eval_yks_lc_12[2]}'>{eval_yks_lc_12[1]} ({eval_yks_lc_12[0]})</span>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"**Yorkshire SC (Winter):**  \n"
-                f"Age 11: `{yks_sc_11_t or '--'}` &rarr; <span class='{eval_yks_sc_11[2]}'>{eval_yks_sc_11[1]} ({eval_yks_sc_11[0]})</span> &nbsp;|&nbsp; "
-                f"Age 12: `{yks_sc_12_t or '--'}` &rarr; <span class='{eval_yks_sc_12[2]}'>{eval_yks_sc_12[1]} ({eval_yks_sc_12[0]})</span>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"**NER LC:**  \n"
-                f"Age 11: `{ner_lc_11_t or '--'}` &rarr; <span class='{eval_ner_lc_11[2]}'>{eval_ner_lc_11[1]} ({eval_ner_lc_11[0]})</span> &nbsp;|&nbsp; "
-                f"Age 12: `{ner_lc_12_t or '--'}` &rarr; <span class='{eval_ner_lc_12[2]}'>{eval_ner_lc_12[1]} ({eval_ner_lc_12[0]})</span>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"**NER SC (Winter):**  \n"
-                f"Age 11: `{ner_sc_11_t or '--'}` &rarr; <span class='{eval_ner_sc_11[2]}'>{eval_ner_sc_11[1]} ({eval_ner_sc_11[0]})</span> &nbsp;|&nbsp; "
-                f"Age 12: `{ner_sc_12_t or '--'}` &rarr; <span class='{eval_ner_sc_12[2]}'>{eval_ner_sc_12[1]} ({eval_ner_sc_12[0]})</span>",
-                unsafe_allow_html=True,
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with card_right:
-            st.write(f"**Championship Progress (Active: Age {active_age})**")
-
-            act_yks_lc_eval = eval_yks_lc_11 if active_age == "11" else eval_yks_lc_12
-            if act_yks_lc_eval[0] != "No Cut":
-                st.caption(f"Yorkshire LC: {act_yks_lc_eval[0]} ({act_yks_lc_eval[3]:.1f}%)")
-                st.progress(act_yks_lc_eval[3] / 100.0)
-            else:
-                st.caption("Yorkshire LC: No target set.")
-
-            act_yks_sc_eval = eval_yks_sc_11 if active_age == "11" else eval_yks_sc_12
-            if act_yks_sc_eval[0] != "No Cut":
-                st.caption(f"Yorkshire SC (Winter): {act_yks_sc_eval[0]} ({act_yks_sc_eval[3]:.1f}%)")
-                st.progress(act_yks_sc_eval[3] / 100.0)
-            else:
-                st.caption("Yorkshire SC (Winter): No target set.")
-
-            act_ner_lc_eval = eval_ner_lc_11 if active_age == "11" else eval_ner_lc_12
-            if act_ner_lc_eval[0] != "No Cut":
-                st.caption(f"NER LC: {act_ner_lc_eval[0]} ({act_ner_lc_eval[3]:.1f}%)")
-                st.progress(act_ner_lc_eval[3] / 100.0)
-            else:
-                st.caption("NER LC: No target set.")
-
-            act_ner_sc_eval = eval_ner_sc_11 if active_age == "11" else eval_ner_sc_12
-            if act_ner_sc_eval[0] != "No Cut":
-                st.caption(f"NER SC (Winter): {act_ner_sc_eval[0]} ({act_ner_sc_eval[3]:.1f}%)")
-                st.progress(act_ner_sc_eval[3] / 100.0)
-            else:
-                st.caption("NER SC (Winter): No target set.")
-
-        st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 13. TABULAR SUMMARY VIEW
-# ==============================================================================
-with st.expander("📋 Tabular View of All Swims & Active Age Standards"):
+with st.expander("📋 Full Table View of All Swims & Active Age Standards"):
     summary_rows = []
     for ev in unique_events:
         best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
