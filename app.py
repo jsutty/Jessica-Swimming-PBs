@@ -1,13 +1,10 @@
 import re
-import urllib.parse
-import json
 import pandas as pd
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 import streamlit as st
 
 # ==========================================
-# SWIMMER CONFIG
+# SWIMMER PROFILE
 # ==========================================
 SWIMMER_NAME = "Jessica Sutcliffe"
 SWIMMER_TIREF = "1749292"
@@ -88,130 +85,104 @@ def seconds_to_time(seconds: float | None) -> str:
 
 
 # ==========================================
-# ROBUST LIVE FETCHER & PARSER
+# ROBUST HTML & TEXT PARSER
 # ==========================================
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_live_pbs():
-    html_text = ""
-    fetch_source = "None"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "Referer": "https://www.swimmingresults.org/individualbest/",
-        "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-        "Upgrade-Insecure-Requests": "1",
-    }
+def parse_swim_content(content_str: str):
+    if not content_str or not content_str.strip():
+        return None
 
-    # Attempt 1: Direct request with genuine browser session impersonation
-    try:
-        s = requests.Session()
-        resp = s.get(SWIMMER_URL, headers=headers, impersonate="chrome120", timeout=12)
-        if resp.status_code == 200 and "table" in resp.text.lower():
-            html_text = resp.text
-            fetch_source = "Direct Connection"
-    except Exception:
-        pass
-
-    # Attempt 2: If blocked or blank, query through raw CORS Gateway
-    if not html_text:
-        try:
-            proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(SWIMMER_URL)}"
-            resp = requests.get(proxy_url, impersonate="chrome120", timeout=15)
-            if resp.status_code == 200 and len(resp.text) > 1000:
-                html_text = resp.text
-                fetch_source = "Proxy (AllOrigins)"
-        except Exception:
-            pass
-
-    # Attempt 3: Alternative mirror
-    if not html_text:
-        try:
-            proxy_url2 = f"https://corsproxy.io/?url={urllib.parse.quote(SWIMMER_URL)}"
-            resp = requests.get(proxy_url2, impersonate="chrome120", timeout=15)
-            if resp.status_code == 200 and len(resp.text) > 1000:
-                html_text = resp.text
-                fetch_source = "Proxy (CorsProxy)"
-        except Exception:
-            pass
-
-    if not html_text:
-        return None, "Unable to establish connection to Swim England. Please verify connection and retry.", ""
-
-    soup = BeautifulSoup(html_text, "html.parser")
     records = []
-
-    # Recognize all common stroke keywords
-    event_pattern = re.compile(r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b", re.I)
+    event_pattern = re.compile(
+        r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b", re.I
+    )
     time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
-    for table in soup.find_all("table"):
-        table_html = str(table).upper()
-        
-        # Determine course context for this specific table
-        prev_heading = ""
-        prev_node = table.find_previous(["h2", "h3", "h4", "h5", "caption", "p"])
-        if prev_node:
-            prev_heading = prev_node.get_text(strip=True).upper()
-            
-        full_context = prev_heading + " " + table_html[:300]
-        is_lc = ("LONG COURSE" in full_context) or ("50M" in full_context) or ("50 METRES" in full_context)
-        course_label = "Long Course (50m)" if is_lc else "Short Course (25m)"
-        conv_label = "Converted to SC" if is_lc else "Converted to LC"
+    # Approach A: HTML parsing
+    if "<table" in content_str.lower() or "<tr" in content_str.lower():
+        soup = BeautifulSoup(content_str, "html.parser")
+        for table in soup.find_all("table"):
+            table_txt = str(table).upper()
+            prev_node = table.find_previous(["h2", "h3", "h4", "h5", "caption", "p"])
+            prev_heading = prev_node.get_text(strip=True).upper() if prev_node else ""
+            full_context = prev_heading + " " + table_txt[:300]
 
-        for row in table.find_all("tr"):
-            cells = row.find_all(["td", "th"])
-            if len(cells) < 2:
+            is_lc = ("LONG COURSE" in full_context) or ("50M" in full_context)
+            course_lbl = "Long Course (50m)" if is_lc else "Short Course (25m)"
+            conv_lbl = "Converted to SC" if is_lc else "Converted to LC"
+
+            for row in table.find_all("tr"):
+                cells = row.find_all(["td", "th"])
+                if len(cells) < 2:
+                    continue
+                cell_texts = [c.get_text(" ", strip=True) for c in cells]
+                first_cell = cell_texts[0]
+
+                if not (re.search(r"\d+", first_cell) and event_pattern.search(first_cell)):
+                    continue
+
+                times_found = []
+                for ct in cell_texts[1:]:
+                    match = time_regex.search(ct)
+                    if match:
+                        times_found.append(match.group(0))
+
+                if not times_found:
+                    continue
+
+                actual_time = times_found[0]
+                actual_sec = time_to_seconds(actual_time)
+                conv_time = times_found[1] if len(times_found) > 1 else "--"
+                conv_sec = time_to_seconds(conv_time)
+
+                records.append({
+                    "Course": course_lbl,
+                    "Event": first_cell,
+                    "PB_Time": actual_time,
+                    "PB_Sec": actual_sec,
+                    "Conv_Label": conv_lbl,
+                    "Conv_Time": conv_time,
+                    "Conv_Sec": conv_sec,
+                })
+
+    # Approach B: Plain Text row fallback (when copied without HTML tags)
+    if not records:
+        current_course = "Short Course (25m)"
+        for line in content_str.split("\n"):
+            line_str = line.strip()
+            if "LONG COURSE" in line_str.upper() or "50M" in line_str.upper():
+                current_course = "Long Course (50m)"
+                continue
+            elif "SHORT COURSE" in line_str.upper() or "25M" in line_str.upper():
+                current_course = "Short Course (25m)"
                 continue
 
-            cell_texts = [c.get_text(" ", strip=True) for c in cells]
-            first_cell = cell_texts[0]
+            if event_pattern.search(line_str) and re.search(r"\d+", line_str):
+                times = time_regex.findall(line_str)
+                if times:
+                    # Extract event name (text up to first time)
+                    idx = line_str.find(times[0])
+                    event_part = line_str[:idx].strip(" \t-:,")
+                    actual_time = times[0]
+                    actual_sec = time_to_seconds(actual_time)
+                    conv_time = times[1] if len(times) > 1 else "--"
+                    conv_sec = time_to_seconds(conv_time)
+                    conv_lbl = "Converted to SC" if current_course == "Long Course (50m)" else "Converted to LC"
 
-            # Validate that row is a swim event (contains distance number and stroke)
-            if not (re.search(r"\d+", first_cell) and event_pattern.search(first_cell)):
-                continue
-
-            # Extract any valid time strings across all cells in this row
-            times_found = []
-            for ct in cell_texts[1:]:
-                match = time_regex.search(ct)
-                if match:
-                    times_found.append(match.group(0))
-
-            if not times_found:
-                continue
-
-            actual_time = times_found[0]
-            actual_sec = time_to_seconds(actual_time)
-
-            conv_time = times_found[1] if len(times_found) > 1 else "--"
-            conv_sec = time_to_seconds(conv_time)
-
-            records.append({
-                "Course": course_label,
-                "Event": first_cell,
-                "PB_Time": actual_time,
-                "PB_Sec": actual_sec,
-                "Conv_Label": conv_label,
-                "Conv_Time": conv_time,
-                "Conv_Sec": conv_sec,
-            })
+                    records.append({
+                        "Course": current_course,
+                        "Event": event_part if event_part else "Swim Event",
+                        "PB_Time": actual_time,
+                        "PB_Sec": actual_sec,
+                        "Conv_Label": conv_lbl,
+                        "Conv_Time": conv_time,
+                        "Conv_Sec": conv_sec,
+                    })
 
     if not records:
-        # Provide diagnostic info if parsing yields 0 records
-        doc_title = soup.title.string if soup.title else "No title"
-        preview = soup.get_text()[:300].strip()
-        debug_info = f"Source: {fetch_source} | Title: {doc_title} | Content preview: {preview}"
-        return None, "Connected, but no swimming times were found on the page.", debug_info
+        return None
 
     df = pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
-    return df, None, fetch_source
+    return df
 
 
 # ==========================================
@@ -239,30 +210,51 @@ def evaluate_cut(pb_sec, target_sec):
 
 
 # ==========================================
-# APP SETUP
+# APP STATE INITIALIZATION
 # ==========================================
-st.title(f"🏊‍♀️ {SWIMMER_NAME}'s Performance Tracker")
-st.caption(f"Swim England Ref: **{SWIMMER_TIREF}** &bull; [Rankings Profile]({SWIMMER_URL})")
+if "jessica_pbs_df" not in st.session_state:
+    st.session_state.jessica_pbs_df = None
 
-col_head1, col_head2 = st.columns([3, 1])
-with col_head2:
-    if st.button("🔄 Sync Live Times", use_container_width=True):
-        fetch_live_pbs.clear()
-        st.rerun()
-
-with st.spinner("Fetching latest rankings from Swim England..."):
-    df_pbs, error, diag_info = fetch_live_pbs()
-
-if error:
-    st.error(error)
-    if diag_info:
-        with st.expander("Diagnostic Details"):
-            st.code(diag_info)
-    st.stop()
-
-# Initialize session targets
 if "targets" not in st.session_state:
     st.session_state.targets = {}
+
+# ==========================================
+# HEADER
+# ==========================================
+st.title(f"🏊‍♀️ {SWIMMER_NAME}'s Performance Tracker")
+st.caption(f"Swim England Ref: **{SWIMMER_TIREF}** &bull; [Open Official Rankings Page]({SWIMMER_URL})")
+
+# ==========================================
+# SYNC / UPDATE EXPANDER (BYPASSES CLOUD 403 BLOCKS)
+# ==========================================
+with st.expander("📥 Sync / Update Jessica's Times (Tap here)", expanded=(st.session_state.jessica_pbs_df is None)):
+    st.markdown(
+        f"""
+        **How to load / refresh her times on iPad:**
+        1. Tap here to open Jessica's profile: **[Swim England Rankings Profile]({SWIMMER_URL})**
+        2. On that page, tap anywhere on the table, tap **Select All** &rarr; **Copy**.
+        3. Paste directly into the box below and tap **Parse & Save Times**.
+        """
+    )
+    pasted_data = st.text_area(
+        "Paste page content or table text here:",
+        height=140,
+        placeholder="Paste copied text or HTML from swimmingresults.org..."
+    )
+    if st.button("🚀 Parse & Save Times", use_container_width=True):
+        parsed = parse_swim_content(pasted_data)
+        if parsed is not None and not parsed.empty:
+            st.session_state.jessica_pbs_df = parsed
+            st.success(f"Successfully loaded {len(parsed)} swim times!")
+            st.rerun()
+        else:
+            st.error("Could not find swim times in the pasted text. Please make sure the table rows are included.")
+
+df_pbs = st.session_state.jessica_pbs_df
+
+if df_pbs is None or df_pbs.empty:
+    st.info("👆 Tap the expander above to paste Jessica's table. Once pasted, all 29 times and championship calculations will display.")
+    st.stop()
 
 # ==========================================
 # TARGET TIMES INPUT (YORKSHIRES & NERS)
