@@ -19,6 +19,9 @@ SWIMMER_URL = (
 )
 CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of-Leeds-Swimming-Club-Logo.png"
 
+DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdMKp-w3yIT_qZxoHA6zFaxLdjuk/edit?usp=drivesdk"
+DEFAULT_WORKSHEET_TAB = "EXPORT"
+
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 PBS_FILE = os.path.join(DATA_DIR, "jessica_pbs.json")
 STANDARDS_FILE = os.path.join(DATA_DIR, "standards.json")
@@ -291,7 +294,6 @@ def fetch_google_sheet_csv(sheet_url, tab_name):
     sheet_id = match.group(1)
     encoded_tab = urllib.parse.quote(tab_name.strip())
 
-    # Try standard export first, fallback to gviz endpoint
     candidate_urls = [
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
@@ -333,7 +335,6 @@ def fetch_google_sheet_csv(sheet_url, tab_name):
     try:
         clean_csv = "\n".join(raw_lines[header_idx:])
         df = pd.read_csv(io.StringIO(clean_csv))
-        # Drop entirely empty columns or rows
         df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
         return df, None
     except Exception as e:
@@ -343,7 +344,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     if df_raw.empty or df_raw.shape[1] < 2:
         return 0, "Table has fewer than 2 columns."
 
-    # Locate event and competition columns
     has_comp_col = False
     comp_col = None
     event_col = None
@@ -356,7 +356,6 @@ def parse_standards_dataframe(df_raw, default_meet):
         elif "event" in col_c or "stroke" in col_c or "race" in col_c:
             event_col = col
 
-    # Fallbacks if columns have generic headers
     if not event_col:
         event_col = df_raw.columns[1] if has_comp_col else df_raw.columns[0]
     if not has_comp_col and df_raw.shape[1] >= 3:
@@ -366,7 +365,6 @@ def parse_standards_dataframe(df_raw, default_meet):
             comp_col = df_raw.columns[0]
             event_col = df_raw.columns[1]
 
-    # Find Age 11 and Age 12 columns strictly
     age_cols = []
     for col in df_raw.columns:
         if col in [comp_col, event_col]:
@@ -384,7 +382,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     current_meet = default_meet
 
     for _, row in df_raw.iterrows():
-        # Update meet if specified in Column A
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
             c_text = str(row[comp_col]).strip().lower()
             if "ner" in c_text and ("sc" in c_text or "winter" in c_text or "25" in c_text):
@@ -474,23 +471,23 @@ if st.session_state.swimmer_df is None:
 df = st.session_state.swimmer_df
 
 # ==============================================================================
-# 10. STANDARDS IMPORT (LIVE GOOGLE SHEETS WITH DIAGNOSTICS)
+# 10. STANDARDS IMPORT (LIVE GOOGLE SHEETS)
 # ==============================================================================
 with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
     tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
         st.markdown(
-            "Sync directly from your shared Google Sheet tab (`EXPORTS_QTs`):"
+            "Sync directly from your shared Google Sheet tab (`EXPORT`):"
         )
         c_url, c_tab = st.columns([2, 1])
         with c_url:
             gsheet_raw_url = st.text_input(
                 "Google Sheet Link",
-                value="https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdMKp-w3yIT_qZxoHA6zFaxLdjuk/edit?usp=drivesdk",
+                value=DEFAULT_GSHEET_URL,
             )
         with c_tab:
-            worksheet_tab_name = st.text_input("Worksheet Tab Name", value="EXPORTS_QTs")
+            worksheet_tab_name = st.text_input("Worksheet Tab Name", value=DEFAULT_WORKSHEET_TAB)
 
         sheet_meet = st.selectbox(
             "Default Meet (used if Column A has no meet specified):",
@@ -499,7 +496,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
         )
 
         if st.button("🔄 Sync Directly from Google Sheet", use_container_width=True):
-            with st.spinner("Connecting to Google Sheets..."):
+            with st.spinner(f"Connecting to Google Sheets (Tab: {worksheet_tab_name})..."):
                 df_sheet, err = fetch_google_sheet_csv(gsheet_raw_url, worksheet_tab_name)
                 if err:
                     st.error(err)
