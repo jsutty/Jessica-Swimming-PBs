@@ -1,4 +1,6 @@
 import re
+import urllib.parse
+import json
 import pandas as pd
 from bs4 import BeautifulSoup
 from curl_cffi import requests
@@ -86,29 +88,55 @@ def seconds_to_time(seconds: float | None) -> str:
 
 
 # ==========================================
-# SCRAPER
+# ANTI-403 RESILIENT FETCHER
 # ==========================================
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_live_pbs():
+    html_text = None
+    last_err = ""
+
+    # Strategy 1: Direct browser TLS impersonation
     try:
-        response = requests.get(
+        resp = requests.get(
             SWIMMER_URL,
             impersonate="chrome120",
-            timeout=15,
+            timeout=12,
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
-                "Upgrade-Insecure-Requests": "1",
+                "Referer": "https://www.swimmingresults.org/",
             },
         )
-        response.raise_for_status()
-        html_text = response.text
+        if resp.status_code == 200 and len(resp.text) > 1000:
+            html_text = resp.text
     except Exception as e:
-        return None, f"Could not connect to Swim England: {str(e)}"
+        last_err = str(e)
+
+    # Strategy 2: Proxy Gateway (bypasses AWS cloud IP 403 blocks)
+    if not html_text:
+        try:
+            proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(SWIMMER_URL)}"
+            resp = requests.get(proxy_url, impersonate="chrome120", timeout=15)
+            if resp.status_code == 200 and len(resp.text) > 1000:
+                html_text = resp.text
+        except Exception as e:
+            last_err = str(e)
+
+    # Strategy 3: Fallback secondary mirror proxy
+    if not html_text:
+        try:
+            proxy_url2 = f"https://corsproxy.io/?url={urllib.parse.quote(SWIMMER_URL)}"
+            resp = requests.get(proxy_url2, impersonate="chrome120", timeout=15)
+            if resp.status_code == 200 and len(resp.text) > 1000:
+                html_text = resp.text
+        except Exception as e:
+            last_err = str(e)
+
+    if not html_text:
+        return None, f"Could not connect to Swim England (IP restricted): {last_err}"
 
     soup = BeautifulSoup(html_text, "html.parser")
     records = []
-
     event_keywords = ["freestyle", "breaststroke", "backstroke", "butterfly", "individual medley", "im", "free", "breast", "back", "fly"]
 
     for table in soup.find_all("table"):
@@ -156,7 +184,7 @@ def fetch_live_pbs():
             })
 
     if not records:
-        return None, "No times found."
+        return None, "Connected, but no swimming times were found on the page."
 
     df = pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
     return df, None
@@ -272,17 +300,14 @@ for ev in unique_events_list:
     ev_df = df_pbs[df_pbs["Event"] == ev]
     is_qualified = False
 
-    # Check all candidate times for this event across courses
     for _, row in ev_df.iterrows():
         y_sec = row["Yorkshires_Sec"]
         if y_sec is not None and not pd.isna(y_sec):
-            # Direct PB check
             pb_s = row["PB_Sec"]
             if pb_s is not None and not pd.isna(pb_s) and pb_s <= y_sec:
                 is_qualified = True
                 break
 
-            # Converted time check
             c_sec = row["Conv_Sec"]
             if c_sec is not None and not pd.isna(c_sec) and c_sec <= y_sec:
                 is_qualified = True
@@ -335,14 +360,12 @@ for _, r in display_df.iterrows():
 
     with col_r:
         st.write("")
-        # Yorkshires progress
         if r["Yorkshires_Sec"] is not None and not pd.isna(r["Yorkshires_Sec"]):
             st.caption(f"**Yorkshires Progress:** {r['Y_Pct']:.1f}% pace attained")
             st.progress(r["Y_Pct"] / 100.0)
         else:
             st.caption("No Yorkshires target configured.")
 
-        # NERs progress
         if r["NERs_Sec"] is not None and not pd.isna(r["NERs_Sec"]):
             st.caption(f"**NERs Progress:** {r['N_Pct']:.1f}% pace attained")
             st.progress(r["N_Pct"] / 100.0)
