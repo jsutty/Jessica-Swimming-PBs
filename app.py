@@ -4,54 +4,142 @@ from bs4 import BeautifulSoup
 import streamlit as st
 
 # ==========================================
-# SWIMMER PROFILE
+# SWIMMER & CLUB PROFILE CONFIG
 # ==========================================
 SWIMMER_NAME = "Jessica Sutcliffe"
 SWIMMER_TIREF = "1749292"
 SWIMMER_URL = f"https://www.swimmingresults.org/individualbest/personal_best.php?back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
+CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of-Leeds-Swimming-Club-Logo.png"
 
 st.set_page_config(
-    page_title=f"{SWIMMER_NAME} - Yorkshires & NERs Tracker",
+    page_title=f"{SWIMMER_NAME} - City of Leeds SC Tracker",
     page_icon="🏊‍♀️",
     layout="wide",
 )
 
-# Custom badge pill styling
+# ==========================================
+# CITY OF LEEDS SC THEME STYLING
+# ==========================================
 st.markdown(
-    """
+    f"""
     <style>
-        .badge-green {
+        /* Global & background styling */
+        .main {{
+            background-color: #f4f6fa;
+        }}
+        
+        /* Header Banner */
+        .leeds-header {{
+            background: linear-gradient(135deg, #001a4d 0%, #003399 70%, #0055d4 100%);
+            border-radius: 12px;
+            padding: 24px 28px;
+            color: #ffffff;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 14px rgba(0, 32, 91, 0.15);
+            border-left: 6px solid #FFC72C;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
+        .leeds-title {{
+            font-size: 2.1rem;
+            font-weight: 800;
+            color: #ffffff;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }}
+        .leeds-sub {{
+            font-size: 1.0rem;
+            color: #FFC72C;
+            font-weight: 600;
+            margin-top: 4px;
+        }}
+        
+        /* Unified Event Card */
+        .event-card {{
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 18px 22px;
+            margin-bottom: 18px;
+            border: 1px solid #e1e6f0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border-top: 4px solid #003399;
+        }}
+        .event-header {{
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #00205B;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
+
+        /* Course Visual Badges */
+        .pill-lc {{
+            background-color: #003399;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-right: 8px;
+        }}
+        .pill-sc {{
+            background-color: #008080;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-right: 8px;
+        }}
+        
+        /* Status Badges */
+        .badge-green {{
             background-color: #d1e7dd;
             color: #0f5132;
             padding: 3px 8px;
             border-radius: 5px;
-            font-weight: 600;
+            font-weight: 700;
             display: inline-block;
-        }
-        .badge-orange {
+        }}
+        .badge-orange {{
             background-color: #ffe5d0;
             color: #b25e00;
             padding: 3px 8px;
             border-radius: 5px;
-            font-weight: 600;
+            font-weight: 700;
             display: inline-block;
-        }
-        .badge-red {
+        }}
+        .badge-red {{
             background-color: #f8d7da;
             color: #842029;
             padding: 3px 8px;
             border-radius: 5px;
-            font-weight: 600;
+            font-weight: 700;
             display: inline-block;
-        }
-        .badge-gray {
+        }}
+        .badge-gray {{
             background-color: #e9ecef;
             color: #6c757d;
             padding: 3px 8px;
             border-radius: 5px;
             font-weight: 500;
             display: inline-block;
-        }
+        }}
+        
+        /* Metric block styling */
+        div[data-testid="stMetric"] {{
+            background-color: #ffffff;
+            border: 1px solid #e1e6f0;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border-bottom: 3px solid #FFC72C;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+        }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -85,7 +173,7 @@ def seconds_to_time(seconds: float | None) -> str:
 
 
 # ==========================================
-# ROBUST HTML & TEXT PARSER
+# PARSER ENGINE
 # ==========================================
 def parse_swim_content(content_str: str):
     if not content_str or not content_str.strip():
@@ -97,7 +185,7 @@ def parse_swim_content(content_str: str):
     )
     time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
-    # Approach A: HTML parsing
+    # Approach A: HTML table extraction
     if "<table" in content_str.lower() or "<tr" in content_str.lower():
         soup = BeautifulSoup(content_str, "html.parser")
         for table in soup.find_all("table"):
@@ -144,7 +232,7 @@ def parse_swim_content(content_str: str):
                     "Conv_Sec": conv_sec,
                 })
 
-    # Approach B: Plain Text row fallback (when copied without HTML tags)
+    # Approach B: Plain text line-by-line fallback
     if not records:
         current_course = "Short Course (25m)"
         for line in content_str.split("\n"):
@@ -159,7 +247,6 @@ def parse_swim_content(content_str: str):
             if event_pattern.search(line_str) and re.search(r"\d+", line_str):
                 times = time_regex.findall(line_str)
                 if times:
-                    # Extract event name (text up to first time)
                     idx = line_str.find(times[0])
                     event_part = line_str[:idx].strip(" \t-:,")
                     actual_time = times[0]
@@ -210,7 +297,7 @@ def evaluate_cut(pb_sec, target_sec):
 
 
 # ==========================================
-# APP STATE INITIALIZATION
+# SESSION STATE
 # ==========================================
 if "jessica_pbs_df" not in st.session_state:
     st.session_state.jessica_pbs_df = None
@@ -219,26 +306,42 @@ if "targets" not in st.session_state:
     st.session_state.targets = {}
 
 # ==========================================
-# HEADER
+# CITY OF LEEDS CLUB HEADER
 # ==========================================
-st.title(f"🏊‍♀️ {SWIMMER_NAME}'s Performance Tracker")
-st.caption(f"Swim England Ref: **{SWIMMER_TIREF}** &bull; [Open Official Rankings Page]({SWIMMER_URL})")
+st.markdown(
+    f"""
+    <div class="leeds-header">
+        <div>
+            <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>
+            <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; RANKINGS TRACKER</div>
+            <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">
+                Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; 
+                <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>
+            </div>
+        </div>
+        <div>
+            <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display='none'">
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ==========================================
-# SYNC / UPDATE EXPANDER (BYPASSES CLOUD 403 BLOCKS)
+# SYNC MODAL
 # ==========================================
-with st.expander("📥 Sync / Update Jessica's Times (Tap here)", expanded=(st.session_state.jessica_pbs_df is None)):
+with st.expander("📥 Sync / Update Jessica's Times", expanded=(st.session_state.jessica_pbs_df is None)):
     st.markdown(
         f"""
-        **How to load / refresh her times on iPad:**
-        1. Tap here to open Jessica's profile: **[Swim England Rankings Profile]({SWIMMER_URL})**
-        2. On that page, tap anywhere on the table, tap **Select All** &rarr; **Copy**.
-        3. Paste directly into the box below and tap **Parse & Save Times**.
+        **Update times from Swim England:**
+        1. Open: **[Jessica's Swim England Rankings Page]({SWIMMER_URL})**
+        2. Tap anywhere on the table, tap **Select All** &rarr; **Copy**.
+        3. Paste below and tap **Parse & Save Times**.
         """
     )
     pasted_data = st.text_area(
-        "Paste page content or table text here:",
-        height=140,
+        "Paste page content or table rows here:",
+        height=130,
         placeholder="Paste copied text or HTML from swimmingresults.org..."
     )
     if st.button("🚀 Parse & Save Times", use_container_width=True):
@@ -248,19 +351,19 @@ with st.expander("📥 Sync / Update Jessica's Times (Tap here)", expanded=(st.s
             st.success(f"Successfully loaded {len(parsed)} swim times!")
             st.rerun()
         else:
-            st.error("Could not find swim times in the pasted text. Please make sure the table rows are included.")
+            st.error("No valid swim times found. Ensure you copy the table containing events and times.")
 
 df_pbs = st.session_state.jessica_pbs_df
 
 if df_pbs is None or df_pbs.empty:
-    st.info("👆 Tap the expander above to paste Jessica's table. Once pasted, all 29 times and championship calculations will display.")
+    st.info("👆 Tap the box above to paste Jessica's table. Once pasted, all consolidated event cards will display.")
     st.stop()
 
 # ==========================================
 # TARGET TIMES INPUT (YORKSHIRES & NERS)
 # ==========================================
 with st.expander("🎯 Set Championship Standards (Yorkshires & NERs)", expanded=False):
-    st.markdown("Set qualifying target times for an event:")
+    st.markdown("Set target qualifying times for any event:")
     
     unique_events = sorted(df_pbs["Event"].unique().tolist())
     
@@ -283,7 +386,7 @@ with st.expander("🎯 Set Championship Standards (Yorkshires & NERs)", expanded
         }
         st.success(f"Saved targets for {sel_ev} ({sel_course})!")
 
-# Attach saved targets safely
+# Attach targets
 def get_target_info(row, field):
     key = f"{row['Course']}_{row['Event']}"
     if key in st.session_state.targets:
@@ -295,14 +398,13 @@ df_pbs["Yorkshires_Sec"] = df_pbs.apply(lambda r: get_target_info(r, "Yorkshires
 df_pbs["NERs_Target"] = df_pbs.apply(lambda r: get_target_info(r, "NERs"), axis=1)
 df_pbs["NERs_Sec"] = df_pbs.apply(lambda r: get_target_info(r, "NERs"), axis=1)
 
-# Evaluate Yorkshires
+# Evaluate
 y_eval = df_pbs.apply(lambda r: evaluate_cut(r["PB_Sec"], r["Yorkshires_Sec"]), axis=1)
 df_pbs["Y_Status"] = [e[0] for e in y_eval]
 df_pbs["Y_Gap"] = [e[1] for e in y_eval]
 df_pbs["Y_Badge"] = [e[2] for e in y_eval]
 df_pbs["Y_Pct"] = [e[3] for e in y_eval]
 
-# Evaluate NERs
 n_eval = df_pbs.apply(lambda r: evaluate_cut(r["PB_Sec"], r["NERs_Sec"]), axis=1)
 df_pbs["N_Status"] = [e[0] for e in n_eval]
 df_pbs["N_Gap"] = [e[1] for e in n_eval]
@@ -310,10 +412,10 @@ df_pbs["N_Badge"] = [e[2] for e in n_eval]
 df_pbs["N_Pct"] = [e[3] for e in n_eval]
 
 # ==========================================
-# UNIQUE EVENTS QUALIFIED LOGIC
+# UNIQUE EVENTS QUALIFIED (BEST OF LC VS CONV LC)
 # ==========================================
 unique_yorkshires_qualified = 0
-unique_events_list = df_pbs["Event"].unique().tolist()
+unique_events_list = sorted(df_pbs["Event"].unique().tolist())
 
 for ev in unique_events_list:
     ev_df = df_pbs[df_pbs["Event"] == ev]
@@ -335,67 +437,104 @@ for ev in unique_events_list:
     if is_qualified:
         unique_yorkshires_qualified += 1
 
-# Course filter
-selected_course = st.selectbox(
-    "Filter Course", ["All Courses", "Short Course (25m)", "Long Course (50m)"]
-)
-if selected_course != "All Courses":
-    display_df = df_pbs[df_pbs["Course"] == selected_course].copy()
-else:
-    display_df = df_pbs.copy()
-
 # ==========================================
 # KPI METRIC CARDS
 # ==========================================
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Unique Yorkshires Cuts", unique_yorkshires_qualified, help="Unique events qualified using PB or Converted equivalent.")
-c2.metric("Yorkshires Cuts (Rows)", len(display_df[display_df["Y_Status"] == "Qualified 🎯"]))
-c3.metric("NERs Cuts (Rows)", len(display_df[display_df["N_Status"] == "Qualified 🎯"]))
-c4.metric("Standards Configured", len(st.session_state.targets))
+c1.metric("Unique Yorkshires Cuts", unique_yorkshires_qualified, help="Unique strokes qualified using LC PB or Converted LC equivalent.")
+c2.metric("Total Events Logged", len(unique_events_list))
+c3.metric("Total PBs Recorded", len(df_pbs))
+c4.metric("Championship Standards Set", len(st.session_state.targets))
 
-st.markdown("---")
-st.subheader("📊 Performance vs Standards")
+st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+
+# Stroke category filter
+stroke_filter = st.radio(
+    "Filter by Stroke",
+    ["All Events", "Freestyle", "Backstroke", "Breaststroke", "Butterfly", "Individual Medley"],
+    horizontal=True,
+)
 
 # ==========================================
-# PERFORMANCE BREAKDOWN ROWS
+# CONSOLIDATED EVENT DISPLAY (ONE CARD PER EVENT)
 # ==========================================
-for _, r in display_df.iterrows():
-    col_l, col_r = st.columns([1, 1])
+for ev in unique_events_list:
+    if stroke_filter != "All Events" and stroke_filter.lower() not in ev.lower():
+        continue
 
-    with col_l:
-        st.markdown(
-            f"### {r['Event']}  \n"
-            f"**Course:** {r['Course']} &bull; PB: **`{r['PB_Time']}`** &nbsp;|&nbsp; {r['Conv_Label']}: **`{r['Conv_Time']}`**"
-        )
-        
-        y_cut_str = r['Yorkshires_Target'] or '--'
-        n_cut_str = r['NERs_Target'] or '--'
-        
-        st.markdown(
-            f"**Yorkshires Cut:** `{y_cut_str}` &rarr; <span class='{r['Y_Badge']}'>{r['Y_Gap']} ({r['Y_Status']})</span>  \n"
-            f"**NERs Cut:** `{n_cut_str}` &rarr; <span class='{r['N_Badge']}'>{r['N_Gap']} ({r['N_Status']})</span>",
-            unsafe_allow_html=True
-        )
+    ev_df = df_pbs[df_pbs["Event"] == ev]
+    lc_rows = ev_df[ev_df["Course"] == "Long Course (50m)"]
+    sc_rows = ev_df[ev_df["Course"] == "Short Course (25m)"]
 
-    with col_r:
-        st.write("")
-        if r["Yorkshires_Sec"] is not None and not pd.isna(r["Yorkshires_Sec"]):
-            st.caption(f"**Yorkshires Progress:** {r['Y_Pct']:.1f}% pace attained")
-            st.progress(r["Y_Pct"] / 100.0)
-        else:
-            st.caption("No Yorkshires target configured.")
+    st.markdown(
+        f"""
+        <div class="event-card">
+            <div class="event-header">
+                <span>🏊 {ev}</span>
+            </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        if r["NERs_Sec"] is not None and not pd.isna(r["NERs_Sec"]):
-            st.caption(f"**NERs Progress:** {r['N_Pct']:.1f}% pace attained")
-            st.progress(r["N_Pct"] / 100.0)
-        else:
-            st.caption("No NERs target configured.")
+    # 1. LONG COURSE ROW (If available)
+    if not lc_rows.empty:
+        r_lc = lc_rows.iloc[0]
+        col_meta, col_bar = st.columns([1, 1])
+        with col_meta:
+            st.markdown(
+                f"""
+                <span class="pill-lc">🏊‍♂️ LC PB</span> <b><code>{r_lc['PB_Time']}</code></b> &nbsp;|&nbsp; 
+                <span style="color: #666; font-size: 0.9rem;">Conv SC: <b>{r_lc['Conv_Time']}</b></span>  \n
+                <span style="font-size: 0.92rem;">
+                    Yorkshires Cut: <code>{r_lc['Yorkshires_Target'] or '--'}</code> &rarr; <span class="{r_lc['Y_Badge']}">{r_lc['Y_Gap']} ({r_lc['Y_Status']})</span>  \n
+                    NERs Cut: <code>{r_lc['NERs_Target'] or '--'}</code> &rarr; <span class="{r_lc['N_Badge']}">{r_lc['N_Gap']} ({r_lc['N_Status']})</span>
+                </span>
+                """,
+                unsafe_allow_html=True,
+            )
+        with col_bar:
+            if r_lc["Yorkshires_Sec"] is not None and not pd.isna(r_lc["Yorkshires_Sec"]):
+                st.caption(f"LC Yorkshires Progress: {r_lc['Y_Pct']:.1f}%")
+                st.progress(r_lc["Y_Pct"] / 100.0)
+            if r_lc["NERs_Sec"] is not None and not pd.isna(r_lc["NERs_Sec"]):
+                st.caption(f"LC NERs Progress: {r_lc['N_Pct']:.1f}%")
+                st.progress(r_lc["N_Pct"] / 100.0)
+    else:
+        st.caption("No official Long Course (50m) PB recorded for this event.")
 
-    st.markdown("<hr style='margin: 0.5rem 0;'>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 10px; border-top: 1px dashed #e1e6f0; margin: 10px 0;'></div>", unsafe_allow_html=True)
 
-# Table summary
-with st.expander("📋 Full Results Table"):
-    view_table = display_df[
+    # 2. SHORT COURSE ROW (If available)
+    if not sc_rows.empty:
+        r_sc = sc_rows.iloc[0]
+        col_meta_sc, col_bar_sc = st.columns([1, 1])
+        with col_meta_sc:
+            st.markdown(
+                f"""
+                <span class="pill-sc">🏊‍♀️ SC PB</span> <b><code>{r_sc['PB_Time']}</code></b> &nbsp;|&nbsp; 
+                <span style="color: #666; font-size: 0.9rem;">Conv LC: <b>{r_sc['Conv_Time']}</b></span>  \n
+                <span style="font-size: 0.92rem;">
+                    Yorkshires Cut: <code>{r_sc['Yorkshires_Target'] or '--'}</code> &rarr; <span class="{r_sc['Y_Badge']}">{r_sc['Y_Gap']} ({r_sc['Y_Status']})</span>  \n
+                    NERs Cut: <code>{r_sc['NERs_Target'] or '--'}</code> &rarr; <span class="{r_sc['N_Badge']}">{r_sc['N_Gap']} ({r_sc['N_Status']})</span>
+                </span>
+                """,
+                unsafe_allow_html=True,
+            )
+        with col_bar_sc:
+            if r_sc["Yorkshires_Sec"] is not None and not pd.isna(r_sc["Yorkshires_Sec"]):
+                st.caption(f"SC Yorkshires Progress: {r_sc['Y_Pct']:.1f}%")
+                st.progress(r_sc["Y_Pct"] / 100.0)
+            if r_sc["NERs_Sec"] is not None and not pd.isna(r_sc["NERs_Sec"]):
+                st.caption(f"SC NERs Progress: {r_sc['N_Pct']:.1f}%")
+                st.progress(r_sc["N_Pct"] / 100.0)
+    else:
+        st.caption("No official Short Course (25m) PB recorded for this event.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Table summary expander
+with st.expander("📋 View All Swims in Tabular Format"):
+    view_table = df_pbs[
         ["Course", "Event", "PB_Time", "Conv_Label", "Conv_Time", "Yorkshires_Target", "Y_Gap", "Y_Status", "NERs_Target", "N_Gap", "N_Status"]
     ].rename(columns={
         "Y_Gap": "Yorkshires Gap",
