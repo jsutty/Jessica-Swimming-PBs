@@ -71,20 +71,12 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. ROBUST TIME VALIDATION & NORMALIZATION
+# 3. TIME HELPERS & NORMALIZATION
 # ==============================================================================
 def parse_time_value(val):
-    """
-    Bulletproof parser for raw numbers, floats, strings, and duration objects.
-    Handles:
-    - Floats/Ints directly: 12.3, 33.8, 45
-    - Strings: '12.3', '33.80', '1:14.2', '00:00:12.3', '00:01:14.50'
-    Returns float seconds, or None if invalid/empty.
-    """
     if val is None or pd.isna(val):
         return None
 
-    # Case A: Already a numeric integer or float
     if isinstance(val, (int, float)):
         try:
             f = float(val)
@@ -96,14 +88,12 @@ def parse_time_value(val):
     if not val_str or val_str.lower() in ["--", "-", "nt", "dq", "no cut", "nan", "none"]:
         return None
 
-    # Case B: Standard float string (e.g. '12.3', '33.80')
     try:
         f = float(val_str)
         return f if f > 0 else None
     except ValueError:
         pass
 
-    # Case C: Colon separated durations (e.g. '1:14.20', '00:00:33.8', '00:01:12.3')
     parts = val_str.split(":")
     try:
         if len(parts) == 3:
@@ -115,7 +105,6 @@ def parse_time_value(val):
     except (ValueError, TypeError):
         pass
 
-    # Case D: Regex search fallback
     m = re.search(r"(?:(?:(\d+):)?(\d+):)?(\d+(?:\.\d+)?)", val_str)
     if m:
         hrs, mins, secs = m.groups()
@@ -132,7 +121,6 @@ def parse_time_value(val):
     return None
 
 def format_display_time(sec):
-    """Formats float seconds into clean swimming format (e.g. 12.3 -> '12.30', 74.2 -> '1:14.20')."""
     if sec is None or pd.isna(sec):
         return "--"
     try:
@@ -355,7 +343,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. GOOGLE SHEETS FETCHER & TIME VALIDATING PARSER
+# 6. BULLETPROOF MULTI-TABLE GOOGLE SHEETS FETCHER
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -376,13 +364,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
-
-    if tab_identifier and not str(tab_identifier).isdigit():
-        encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
-        candidate_urls.extend([
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
-        ])
 
     csv_text = None
     last_err = ""
@@ -409,12 +390,14 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
+    # Seek the real header line containing standalone 11 and an event keyword
     header_idx = 0
-    for i, line in enumerate(raw_lines[:15]):
+    for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
-        has_11 = bool(re.search(r"(?<!\d)11(?!\d)", line_l))
-        has_ev = any(k in line_l for k in ["event", "stroke", "50", "100", "free", "comp"])
-        if has_11 and has_ev:
+        has_standalone_11 = bool(re.search(r"(?<!\d)11(?!\d)", line_l))
+        has_not_17_only = not (bool(re.search(r"(?<!\d)17(?!\d)", line_l)) and not has_standalone_11)
+        has_ev = any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "100", "distance"])
+        if has_standalone_11 and has_not_17_only and has_ev:
             header_idx = i
             break
         elif has_ev and i > 0 and header_idx == 0:
@@ -462,6 +445,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     comp_col = None
     event_col = None
 
+    # Detect Competition Column
     for col in df.columns:
         col_c = str(col).strip().lower()
         if any(k in col_c for k in ["comp", "meet", "championship"]):
@@ -471,7 +455,7 @@ def parse_standards_dataframe(df_raw, default_meet):
             event_col = col
 
     if not has_comp_col and df.shape[1] >= 3:
-        sample_vals = [str(x).lower() for x in df.iloc[:10, 0].dropna()]
+        sample_vals = [str(x).lower() for x in df.iloc[:15, 0].dropna()]
         if any(any(k in s for k in ["ner", "york", "winter", "lc", "sc"]) for s in sample_vals):
             has_comp_col = True
             comp_col = df.columns[0]
@@ -480,6 +464,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
+    # STRICT AGE 11 & AGE 12 COLUMN ANCHORING (Rejects 17+, Over, 17/OV)
     col_age_11 = None
     col_age_12 = None
 
@@ -488,13 +473,18 @@ def parse_standards_dataframe(df_raw, default_meet):
             continue
         c_str = str(col).strip().lower()
 
-        if any(k in c_str for k in ["17", "18", "19", "over", "ov", "+"]):
+        # Hard refusal of any column with 17, 18, 19, over, or +
+        if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]):
             continue
 
+        # Look specifically for isolated 11
         if re.search(r"(?<!\d)11(?!\d)", c_str):
-            col_age_11 = col
+            if col_age_11 is None:
+                col_age_11 = col
+        # Look specifically for isolated 12
         elif re.search(r"(?<!\d)12(?!\d)", c_str):
-            col_age_12 = col
+            if col_age_12 is None:
+                col_age_12 = col
 
     age_cols = []
     if col_age_11:
@@ -503,12 +493,13 @@ def parse_standards_dataframe(df_raw, default_meet):
         age_cols.append((col_age_12, "12"))
 
     if not age_cols:
-        return 0, f"Could not isolate Age 11 or Age 12 columns. Detected headers: {list(df.columns)}"
+        return 0, f"Could not isolate Age 11 or Age 12. Detected columns: {list(df.columns)}"
 
     saved_count = 0
     current_meet = default_meet
 
     for _, row in df.iterrows():
+        # Check Column A for meet switches
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
             current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
@@ -529,7 +520,7 @@ def parse_standards_dataframe(df_raw, default_meet):
             st.session_state.standards_db[key] = {"time": disp_str, "sec": sec}
             saved_count += 1
 
-    return saved_count, None
+    return saved_count, f"Successfully mapped columns -> Age 11: '{col_age_11}' | Age 12: '{col_age_12}'"
 
 # ==============================================================================
 # 7. SESSION STATE INITIALIZATION & MULTI-TIER LOOKUP
@@ -641,13 +632,15 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                         st.dataframe(df_sheet.head(5), use_container_width=True)
 
                     if sync_btn:
-                        count, parse_err = parse_standards_dataframe(df_sheet, sheet_meet)
+                        # Clear old memory cache to prevent stale cross-meet contamination
+                        st.session_state.standards_db = {}
+                        count, msg = parse_standards_dataframe(df_sheet, sheet_meet)
                         if count > 0:
                             save_standards_to_disk(st.session_state.standards_db)
-                            st.success(f"Successfully converted and saved {count} qualifying standards across all meets!")
+                            st.success(f"Loaded and saved {count} standards! ({msg})")
                             st.rerun()
                         else:
-                            st.error(parse_err)
+                            st.error(msg)
 
     with tab_paste:
         st.write("Paste cells copied directly from Google Sheets / Excel:")
