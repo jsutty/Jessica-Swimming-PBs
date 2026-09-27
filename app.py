@@ -71,12 +71,13 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. TIME HELPERS
+# 3. TIME HELPERS & RESILIENT PARSERS
 # ==============================================================================
 def time_to_seconds(val):
     if not val or pd.isna(val):
         return None
-    val_str = str(val).strip().replace("'", ":").replace('"', "")
+    val_str = str(val).strip().replace("'", ":").replace('"', "").replace(";", ":")
+    # Match mm:ss.xx or ss.xx
     match = re.search(r"(?:(\d+):)?(\d+(?:\.\d+)?)", val_str)
     if not match:
         return None
@@ -123,6 +124,26 @@ def normalize_event_name(ev_name):
     s = re.sub(r"\bbutterfly\b", "fly", s)
     s = re.sub(r"\bindividual medley\b", "im", s)
     return re.sub(r"[^a-z0-9]", "", s)
+
+def extract_distance_and_stroke(ev_name):
+    """Returns (distance_int, stroke_string) for fuzzy matching."""
+    s = str(ev_name).lower()
+    dist_m = re.search(r"\d+", s)
+    dist = int(dist_m.group(0)) if dist_m else None
+    
+    stroke = None
+    if "free" in s:
+        stroke = "free"
+    elif "back" in s:
+        stroke = "back"
+    elif "breast" in s:
+        stroke = "breast"
+    elif "fly" in s or "butterfly" in s:
+        stroke = "fly"
+    elif "im" in s or "medley" in s:
+        stroke = "im"
+        
+    return dist, stroke
 
 def gala_order_key(event_name):
     name = str(event_name).lower()
@@ -285,7 +306,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. GOOGLE SHEETS FETCHER & MULTI-TAB PARSER WITH GID TARGETING
+# 6. ENHANCED GOOGLE SHEETS FETCHER & MULTI-TAB PARSER
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -294,7 +315,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
 
     sheet_id = match.group(1)
     
-    # Priority: If gid is in sheet_url, tab_identifier, or default config
     gid_match = re.search(r"gid=(\d+)", sheet_url + " " + str(tab_identifier))
     if gid_match:
         gid = gid_match.group(1)
@@ -308,7 +328,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
 
-    # Add tab-name based fallbacks if available
     if tab_identifier and not str(tab_identifier).isdigit():
         encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
         candidate_urls.extend([
@@ -326,7 +345,7 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
                 timeout=12,
                 headers={"Accept": "text/csv,text/plain,*/*"},
             )
-            if resp.status_code == 200 and len(resp.text.strip()) > 30 and "<!DOCTYPE" not in resp.text:
+            if resp.status_code == 200 and len(resp.text.strip()) > 20 and "<!DOCTYPE" not in resp.text:
                 csv_text = resp.text
                 break
             else:
@@ -341,7 +360,7 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Scan rows for the header containing Stroke, Event, Distance, or 11/12
+    # Search for header line containing Stroke, Event, Distance, or 11/12
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
@@ -430,7 +449,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     return saved_count, None
 
 # ==============================================================================
-# 7. SESSION STATE INITIALIZATION
+# 7. SESSION STATE INITIALIZATION & MULTI-TIER LOOKUP
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = load_saved_pbs()
@@ -444,6 +463,16 @@ def lookup_standard(meet, age, event_name):
     if key in st.session_state.standards_db:
         return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
+    # Fuzzy fallback based on distance & stroke component matching
+    req_dist, req_stroke = extract_distance_and_stroke(event_name)
+    if req_dist and req_stroke:
+        for (m, a, e), data in st.session_state.standards_db.items():
+            if m == meet and a == age:
+                cand_dist, cand_stroke = extract_distance_and_stroke(e)
+                if cand_dist == req_dist and cand_stroke == req_stroke:
+                    return data["time"], data["sec"]
+
+    # Direct fallback match
     for (m, a, e), data in st.session_state.standards_db.items():
         if m == meet and a == age and (e == clean_ev or e == str(event_name).lower()):
             return data["time"], data["sec"]
@@ -489,9 +518,9 @@ if st.session_state.swimmer_df is None:
 df = st.session_state.swimmer_df
 
 # ==============================================================================
-# 10. STANDARDS IMPORT (LIVE GOOGLE SHEETS)
+# 10. STANDARDS IMPORT & LIVE DIAGNOSTICS
 # ==============================================================================
-with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
+with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diagnostics)", expanded=(len(st.session_state.standards_db) == 0)):
     tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
@@ -513,22 +542,31 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
             key="gsheet_meet",
         )
 
-        if st.button("🔄 Sync Directly from Google Sheet", use_container_width=True):
+        c_sync1, c_sync2 = st.columns([1, 1])
+        with c_sync1:
+            sync_btn = st.button("🔄 Sync Directly from Google Sheet", use_container_width=True)
+        with c_sync2:
+            debug_btn = st.button("🔍 Check Connection & Preview Data", use_container_width=True)
+
+        if sync_btn or debug_btn:
             with st.spinner(f"Connecting to Google Sheets (gid={worksheet_tab_name})..."):
                 df_sheet, err = fetch_google_sheet_csv(gsheet_raw_url, worksheet_tab_name)
                 if err:
-                    st.error(err)
+                    st.error(f"Failed to fetch sheet: {err}")
                 else:
-                    count, parse_err = parse_standards_dataframe(df_sheet, sheet_meet)
-                    if count > 0:
-                        save_standards_to_disk(st.session_state.standards_db)
-                        st.success(f"Successfully loaded and saved {count} qualifying standards!")
-                        st.rerun()
-                    else:
-                        st.error(parse_err)
-                        with st.expander("🔍 View Table Detected from Google Sheets"):
-                            st.write("Columns detected:", list(df_sheet.columns))
-                            st.dataframe(df_sheet.head(10))
+                    st.success("Successfully reached Google Sheet!")
+                    st.write("**Detected Columns:**", list(df_sheet.columns))
+                    with st.expander("View Raw Google Sheet Rows (First 5 Rows)", expanded=True):
+                        st.dataframe(df_sheet.head(5), use_container_width=True)
+
+                    if sync_btn:
+                        count, parse_err = parse_standards_dataframe(df_sheet, sheet_meet)
+                        if count > 0:
+                            save_standards_to_disk(st.session_state.standards_db)
+                            st.success(f"Successfully loaded and saved {count} qualifying standards!")
+                            st.rerun()
+                        else:
+                            st.error(parse_err)
 
     with tab_paste:
         st.write("Paste cells copied directly from Google Sheets / Excel:")
@@ -570,6 +608,17 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
                     save_standards_to_disk(st.session_state.standards_db)
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
+
+    # Active Database Inspector
+    with st.expander("📊 View Currently Saved Standards in Memory", expanded=False):
+        if st.session_state.standards_db:
+            db_list = [
+                {"Meet": k[0], "Age": k[1], "Event Key": k[2], "Target Time": v["time"], "Seconds": v["sec"]}
+                for k, v in st.session_state.standards_db.items()
+            ]
+            st.dataframe(pd.DataFrame(db_list), use_container_width=True)
+        else:
+            st.info("No standards currently saved in app memory. Tap 'Sync Directly from Google Sheet' above.")
 
 # Download JSON Backups
 with st.expander("💾 Download / Backup Permanent JSON Files", expanded=False):
