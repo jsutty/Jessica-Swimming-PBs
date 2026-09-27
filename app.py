@@ -71,13 +71,12 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. TIME HELPERS & RESILIENT PARSERS
+# 3. TIME HELPERS & NORMALIZATION
 # ==============================================================================
 def time_to_seconds(val):
     if not val or pd.isna(val):
         return None
     val_str = str(val).strip().replace("'", ":").replace('"', "").replace(";", ":")
-    # Match mm:ss.xx or ss.xx
     match = re.search(r"(?:(\d+):)?(\d+(?:\.\d+)?)", val_str)
     if not match:
         return None
@@ -126,7 +125,6 @@ def normalize_event_name(ev_name):
     return re.sub(r"[^a-z0-9]", "", s)
 
 def extract_distance_and_stroke(ev_name):
-    """Returns (distance_int, stroke_string) for fuzzy matching."""
     s = str(ev_name).lower()
     dist_m = re.search(r"\d+", s)
     dist = int(dist_m.group(0)) if dist_m else None
@@ -306,7 +304,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. ENHANCED GOOGLE SHEETS FETCHER & MULTI-TAB PARSER
+# 6. ENHANCED GOOGLE SHEETS FETCHER & ACCURATE MEET PARSER
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -360,7 +358,7 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Search for header line containing Stroke, Event, Distance, or 11/12
+    # Scan rows for header line containing Stroke, Event, Distance, or 11/12
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
@@ -376,14 +374,39 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     except Exception as e:
         return None, f"Error parsing CSV structure: {str(e)}"
 
+def resolve_meet_from_string(text, default_meet):
+    """Accurately maps text to one of the 4 championship categories."""
+    if not text or pd.isna(text):
+        return default_meet
+    t = str(text).strip().lower()
+    
+    if "ner" in t:
+        if any(k in t for k in ["sc", "winter", "25"]):
+            return "NER SC (Winter)"
+        elif any(k in t for k in ["lc", "50", "summer"]):
+            return "NER LC"
+        else:
+            return "NER SC (Winter)"  # Default for NER if unspecified
+    elif any(k in t for k in ["york", "yks"]):
+        if any(k in t for k in ["sc", "winter", "25"]):
+            return "Yorkshire SC (Winter)"
+        elif any(k in t for k in ["lc", "50", "summer"]):
+            return "Yorkshire LC"
+        else:
+            return "Yorkshire LC"
+            
+    return default_meet
+
 def parse_standards_dataframe(df_raw, default_meet):
     if df_raw.empty or df_raw.shape[1] < 2:
         return 0, "Table has fewer than 2 columns."
 
+    # Inspect Column A to determine if it contains competition names
     has_comp_col = False
     comp_col = None
     event_col = None
 
+    # 1. Header-based detection
     for col in df_raw.columns:
         col_c = str(col).strip().lower()
         if any(k in col_c for k in ["comp", "meet", "championship"]):
@@ -392,14 +415,16 @@ def parse_standards_dataframe(df_raw, default_meet):
         elif any(k in col_c for k in ["event", "stroke", "race"]):
             event_col = col
 
-    if not event_col:
-        event_col = df_raw.columns[1] if has_comp_col else df_raw.columns[0]
+    # 2. Content-based detection in Column 0
     if not has_comp_col and df_raw.shape[1] >= 3:
-        sample_0 = str(df_raw.iloc[0, 0]).lower()
-        if any(k in sample_0 for k in ["ner", "york", "winter", "lc", "sc"]):
+        sample_vals = [str(x).lower() for x in df_raw.iloc[:10, 0].dropna()]
+        if any(any(k in s for k in ["ner", "york", "winter", "lc", "sc"]) for s in sample_vals):
             has_comp_col = True
             comp_col = df_raw.columns[0]
             event_col = df_raw.columns[1]
+
+    if not event_col:
+        event_col = df_raw.columns[1] if has_comp_col else df_raw.columns[0]
 
     # Map Age 11 and Age 12 columns strictly
     age_cols = []
@@ -419,16 +444,9 @@ def parse_standards_dataframe(df_raw, default_meet):
     current_meet = default_meet
 
     for _, row in df_raw.iterrows():
+        # Check if Column A has an explicit meet name for this row
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
-            c_text = str(row[comp_col]).strip().lower()
-            if "ner" in c_text and ("sc" in c_text or "winter" in c_text or "25" in c_text):
-                current_meet = "NER SC (Winter)"
-            elif "ner" in c_text and ("lc" in c_text or "50" in c_text):
-                current_meet = "NER LC"
-            elif "york" in c_text and ("sc" in c_text or "winter" in c_text or "25" in c_text):
-                current_meet = "Yorkshire SC (Winter)"
-            elif "york" in c_text and ("lc" in c_text or "50" in c_text):
-                current_meet = "Yorkshire LC"
+            current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
         raw_ev = str(row[event_col]).strip()
         if not raw_ev or any(k in raw_ev.lower() for k in ["event", "stroke", "qualifying", "consideration"]):
@@ -463,7 +481,7 @@ def lookup_standard(meet, age, event_name):
     if key in st.session_state.standards_db:
         return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
-    # Fuzzy fallback based on distance & stroke component matching
+    # Fuzzy match based on distance and stroke
     req_dist, req_stroke = extract_distance_and_stroke(event_name)
     if req_dist and req_stroke:
         for (m, a, e), data in st.session_state.standards_db.items():
@@ -472,7 +490,7 @@ def lookup_standard(meet, age, event_name):
                 if cand_dist == req_dist and cand_stroke == req_stroke:
                     return data["time"], data["sec"]
 
-    # Direct fallback match
+    # Direct match fallback
     for (m, a, e), data in st.session_state.standards_db.items():
         if m == meet and a == age and (e == clean_ev or e == str(event_name).lower()):
             return data["time"], data["sec"]
@@ -537,7 +555,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
             worksheet_tab_name = st.text_input("Worksheet Tab Name / gid", value=DEFAULT_WORKSHEET_GID)
 
         sheet_meet = st.selectbox(
-            "Default Meet (used if Column A has no meet specified):",
+            "Default Meet (used only if Column A is blank):",
             ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
             key="gsheet_meet",
         )
@@ -617,6 +635,10 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                 for k, v in st.session_state.standards_db.items()
             ]
             st.dataframe(pd.DataFrame(db_list), use_container_width=True)
+            if st.button("🗑️ Clear Stored Standards (Reset)"):
+                st.session_state.standards_db = {}
+                save_standards_to_disk({})
+                st.rerun()
         else:
             st.info("No standards currently saved in app memory. Tap 'Sync Directly from Google Sheet' above.")
 
