@@ -30,7 +30,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STYLING (CITY OF LEEDS PALETTE & STATUS COLORS)
+# 2. STYLING
 # ==============================================================================
 st.markdown(
     """
@@ -72,8 +72,8 @@ st.markdown(
 def time_to_seconds(val):
     if not val or pd.isna(val):
         return None
-    val_str = str(val).strip()
-    match = re.search(r"(?:(\d+):)?(\d+\.\d+)", val_str)
+    val_str = str(val).strip().replace("'", ":").replace('"', "")
+    match = re.search(r"(?:(\d+):)?(\d+(?:\.\d+)?)", val_str)
     if not match:
         return None
     mins, secs = match.groups()
@@ -111,7 +111,6 @@ def evaluate_pace(pb_sec, target_sec):
         return "Chasing ⏱️", f"+{gap:.2f}s", "txt-red", pct
 
 def normalize_event_name(ev_name):
-    """Standardizes event names across variations like '50m Freestyle', '50 Free', '50m Free'."""
     s = str(ev_name).lower()
     s = re.sub(r"\bmeters?\b|\bm\b", "", s)
     s = re.sub(r"\bfreestyle\b", "free", s)
@@ -141,7 +140,7 @@ def gala_order_key(event_name):
     return (stroke, dist, name)
 
 # ==============================================================================
-# 4. STORAGE HELPERS (PERMANENT JSON PERSISTENCE)
+# 4. STORAGE HELPERS
 # ==============================================================================
 def load_saved_pbs():
     if os.path.exists(PBS_FILE):
@@ -282,40 +281,60 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. GOOGLE SHEETS FETCHING & PARSING ENGINE
+# 6. ENHANCED GOOGLE SHEETS CONNECTOR & PARSER
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_name):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
     if not match:
-        return None, "Invalid Google Sheets link. Could not extract the Sheet ID."
+        return None, "Invalid Google Sheets URL. Could not extract Sheet ID."
 
     sheet_id = match.group(1)
     encoded_tab = urllib.parse.quote(tab_name.strip())
-    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
 
-    try:
-        resp = requests.get(csv_url, impersonate="chrome120", timeout=12)
-        if resp.status_code != 200 or not resp.text.strip():
-            return None, f"Failed to download worksheet. HTTP Status: {resp.status_code}"
-        csv_text = resp.text
-    except Exception as e:
-        return None, f"Connection error: {str(e)}"
+    # Try standard export first, fallback to gviz endpoint
+    candidate_urls = [
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
+    ]
+
+    csv_text = None
+    last_err = ""
+    for url in candidate_urls:
+        try:
+            resp = requests.get(
+                url,
+                impersonate="chrome120",
+                timeout=12,
+                headers={"Accept": "text/csv,text/plain,*/*"},
+            )
+            if resp.status_code == 200 and len(resp.text.strip()) > 30 and "<!DOCTYPE" not in resp.text:
+                csv_text = resp.text
+                break
+            else:
+                last_err = f"HTTP {resp.status_code} or received HTML response"
+        except Exception as e:
+            last_err = str(e)
+
+    if not csv_text:
+        return None, f"Could not fetch tab '{tab_name}'. ({last_err})"
 
     raw_lines = [ln for ln in csv_text.splitlines() if ln.strip()]
     if not raw_lines:
-        return None, "Worksheet appears to be completely empty."
+        return None, "Received empty worksheet content."
 
-    # Locate the header row containing 'Event', 'Stroke', 'Competition', etc.
+    # Scan for header row containing Stroke, Event, Distance, or 11/12
     header_idx = 0
-    for i, line in enumerate(raw_lines[:10]):
+    for i, line in enumerate(raw_lines[:15]):
         line_l = line.lower()
-        if "event" in line_l or "stroke" in line_l or "comp" in line_l:
+        if any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "11"]):
             header_idx = i
             break
 
     try:
         clean_csv = "\n".join(raw_lines[header_idx:])
         df = pd.read_csv(io.StringIO(clean_csv))
+        # Drop entirely empty columns or rows
+        df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
         return df, None
     except Exception as e:
         return None, f"Error parsing CSV structure: {str(e)}"
@@ -324,30 +343,30 @@ def parse_standards_dataframe(df_raw, default_meet):
     if df_raw.empty or df_raw.shape[1] < 2:
         return 0, "Table has fewer than 2 columns."
 
+    # Locate event and competition columns
     has_comp_col = False
     comp_col = None
     event_col = None
 
-    # Detect competition and event columns
     for col in df_raw.columns:
-        col_clean = str(col).strip().lower()
-        if "comp" in col_clean or "meet" in col_clean or "championship" in col_clean:
+        col_c = str(col).strip().lower()
+        if "comp" in col_c or "meet" in col_c or "championship" in col_c:
             has_comp_col = True
             comp_col = col
-        elif "event" in col_clean or "stroke" in col_clean or "race" in col_clean:
+        elif "event" in col_c or "stroke" in col_c or "race" in col_c:
             event_col = col
 
-    # Fallback column detection
+    # Fallbacks if columns have generic headers
     if not event_col:
         event_col = df_raw.columns[1] if has_comp_col else df_raw.columns[0]
     if not has_comp_col and df_raw.shape[1] >= 3:
-        sample_val = str(df_raw.iloc[0, 0]).lower()
-        if any(k in sample_val for k in ["ner", "york", "winter", "lc", "sc"]):
+        sample_0 = str(df_raw.iloc[0, 0]).lower()
+        if any(k in sample_0 for k in ["ner", "york", "winter", "lc", "sc"]):
             has_comp_col = True
             comp_col = df_raw.columns[0]
             event_col = df_raw.columns[1]
 
-    # Map Age 11 and Age 12 columns strictly
+    # Find Age 11 and Age 12 columns strictly
     age_cols = []
     for col in df_raw.columns:
         if col in [comp_col, event_col]:
@@ -359,13 +378,13 @@ def parse_standards_dataframe(df_raw, default_meet):
             age_cols.append((col, "12"))
 
     if not age_cols:
-        return 0, f"No 'Age 11' or 'Age 12' columns found. Detected headers: {list(df_raw.columns)}"
+        return 0, f"No columns matched 'Age 11' or 'Age 12'. Columns detected: {list(df_raw.columns)}"
 
     saved_count = 0
     current_meet = default_meet
 
     for _, row in df_raw.iterrows():
-        # Determine meet for this specific row if Column A defines it
+        # Update meet if specified in Column A
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
             c_text = str(row[comp_col]).strip().lower()
             if "ner" in c_text and ("sc" in c_text or "winter" in c_text or "25" in c_text):
@@ -378,7 +397,7 @@ def parse_standards_dataframe(df_raw, default_meet):
                 current_meet = "Yorkshire LC"
 
         raw_ev = str(row[event_col]).strip()
-        if not raw_ev or "event" in raw_ev.lower() or "stroke" in raw_ev.lower():
+        if not raw_ev or any(k in raw_ev.lower() for k in ["event", "stroke", "qualifying", "consideration"]):
             continue
 
         clean_ev = normalize_event_name(raw_ev)
@@ -455,7 +474,7 @@ if st.session_state.swimmer_df is None:
 df = st.session_state.swimmer_df
 
 # ==============================================================================
-# 10. STANDARDS IMPORT (LIVE GOOGLE SHEETS & BACKUP)
+# 10. STANDARDS IMPORT (LIVE GOOGLE SHEETS WITH DIAGNOSTICS)
 # ==============================================================================
 with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
     tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
@@ -474,7 +493,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
             worksheet_tab_name = st.text_input("Worksheet Tab Name", value="EXPORTS_QTs")
 
         sheet_meet = st.selectbox(
-            "Default Meet (used if Column A has no meet name):",
+            "Default Meet (used if Column A has no meet specified):",
             ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
             key="gsheet_meet",
         )
@@ -537,7 +556,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
 
-# JSON Download & Repository Backup Options
+# Download JSON Backups
 with st.expander("💾 Download / Backup Permanent JSON Files", expanded=False):
     st.write("Download these files to commit them to your GitHub repository for permanent offline backups:")
     c_dl1, c_dl2 = st.columns(2)
@@ -646,7 +665,6 @@ for ev in unique_events:
 
         card_left, card_right = st.columns([1, 1])
 
-        # Left Column: Unified PBs and Target Matrix
         with card_left:
             st.markdown('<div class="times-box">', unsafe_allow_html=True)
             if not lc_sub.empty:
@@ -694,7 +712,6 @@ for ev in unique_events:
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # Right Column: Active Age Progress Gauges
         with card_right:
             st.write(f"**Championship Progress (Active: Age {active_age})**")
 
