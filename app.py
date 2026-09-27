@@ -22,23 +22,36 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STABLE CSS INJECTION (CITY OF LEEDS CLUB PALETTE)
+# 2. STABLE CSS INJECTION (CLUB PALETTE & COLOR-CODED TEXT)
 # ==============================================================================
 st.markdown(
     """
     <style>
     .main { background-color: #f6f8fb; }
     .stApp header { background-color: transparent; }
-    .badge-q { background-color: #d1e7dd; color: #0f5132; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-    .badge-w { background-color: #ffe5d0; color: #b25e00; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-    .badge-c { background-color: #f8d7da; color: #842029; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-    .badge-n { background-color: #e9ecef; color: #6c757d; padding: 2px 6px; border-radius: 4px; }
+    .txt-green { color: #0f5132; font-weight: 700; }
+    .txt-amber { color: #d97706; font-weight: 700; }
+    .txt-red { color: #dc2626; font-weight: 700; }
+    .txt-gray { color: #6b7280; }
     div[data-testid="stMetric"] {
         background-color: #ffffff;
         border: 1px solid #dce3ed;
         border-bottom: 4px solid #FFC72C;
         border-radius: 8px;
         padding: 12px;
+    }
+    .times-box {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 12px;
+    }
+    .matrix-box {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px 16px;
     }
     </style>
     """,
@@ -71,24 +84,24 @@ def seconds_to_time(sec):
     return f"{remainder:05.2f}"
 
 def evaluate_pace(pb_sec, target_sec):
-    """Calculates status, gap text, CSS badge class, and percentage pace."""
+    """Returns (status_label, gap_display, color_css_class, percentage_pace)."""
     if pb_sec is None or target_sec is None or pd.isna(pb_sec) or pd.isna(target_sec):
-        return "No Standard", "--", "badge-n", 0.0
+        return "No Cut", "--", "txt-gray", 0.0
     try:
         p = float(pb_sec)
         t = float(target_sec)
     except (ValueError, TypeError):
-        return "No Standard", "--", "badge-n", 0.0
+        return "No Cut", "--", "txt-gray", 0.0
 
     gap = p - t
     pct = min(max((t / p) * 100.0 if p > 0 else 0, 0), 100)
 
     if gap <= 0:
-        return "Qualified 🎯", f"-{abs(gap):.2f}s", "badge-q", pct
+        return "Qualified 🎯", f"-{abs(gap):.2f}s", "txt-green", pct
     elif gap <= 1.0:
-        return "Within 1s ⚡", f"+{gap:.2f}s", "badge-w", pct
+        return "Within 1s ⚡", f"+{gap:.2f}s", "txt-amber", pct
     else:
-        return "Chasing ⏱️", f"+{gap:.2f}s", "badge-c", pct
+        return "Chasing ⏱️", f"+{gap:.2f}s", "txt-red", pct
 
 # ==============================================================================
 # 4. GALA SEQUENCE ENGINE (FREE -> BACK -> BREAST -> FLY -> IM & DISTANCE)
@@ -126,7 +139,6 @@ def parse_swim_england_table(raw_content):
     )
     time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
-    # Branch A: HTML structure
     if "<table" in raw_content.lower() or "<tr" in raw_content.lower():
         soup = BeautifulSoup(raw_content, "html.parser")
         for table in soup.find_all("table"):
@@ -169,7 +181,6 @@ def parse_swim_england_table(raw_content):
                     "Conv_Sec": conv_s,
                 })
 
-    # Branch B: Plain Text fallback
     if not records:
         current_c = "Short Course (25m)"
         for line in raw_content.split("\n"):
@@ -207,7 +218,7 @@ def parse_swim_england_table(raw_content):
         return None
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
-def parse_google_sheets_tsv(tsv_data, default_course):
+def parse_google_sheets_tsv(tsv_data):
     if not tsv_data or not str(tsv_data).strip():
         return 0
     lines = [ln.strip() for ln in str(tsv_data).strip().split("\n") if ln.strip()]
@@ -237,22 +248,18 @@ def parse_google_sheets_tsv(tsv_data, default_course):
             if sec is None:
                 continue
 
-            meet = "Yorkshires"
-            if "ner winter" in col_l:
-                meet = "NER Winter"
+            # Determine championship meet
+            if "ner" in col_l and ("winter" in col_l or "sc" in col_l):
+                meet = "NER SC (Winter)"
             elif "ner" in col_l:
-                meet = "NERs"
-            elif "yorkshire winter" in col_l or "yks winter" in col_l:
-                meet = "Yorkshire Winter"
+                meet = "NER LC"
+            elif "york" in col_l and ("winter" in col_l or "sc" in col_l):
+                meet = "Yorkshire SC (Winter)"
+            else:
+                meet = "Yorkshire LC"
 
             age = "12" if "12" in col_l else "11"
-            course = default_course
-            if "long" in col_l or "50m" in col_l or "lc" in col_l:
-                course = "Long Course (50m)"
-            elif "short" in col_l or "25m" in col_l or "sc" in col_l:
-                course = "Short Course (25m)"
-
-            key = (meet, age, course, ev.lower())
+            key = (meet, age, ev.lower())
             st.session_state.standards_db[key] = {"time": val_s, "sec": sec}
             saved_count += 1
 
@@ -264,17 +271,18 @@ def parse_google_sheets_tsv(tsv_data, default_course):
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = None
 
+# Key: (Meet, Age, Event_Lower) -> {"time": "...", "sec": 12.34}
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = {}
 
-def lookup_standard(meet, age, course, event_name):
-    key = (meet, age, course, str(event_name).lower())
+def lookup_standard(meet, age, event_name):
+    key = (meet, age, str(event_name).lower())
     if key in st.session_state.standards_db:
         return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
     clean_ev = re.sub(r"[^a-z0-9]", "", str(event_name).lower())
-    for (m, a, c, e), data in st.session_state.standards_db.items():
-        if m == meet and a == age and c == course and re.sub(r"[^a-z0-9]", "", e) == clean_ev:
+    for (m, a, e), data in st.session_state.standards_db.items():
+        if m == meet and a == age and re.sub(r"[^a-z0-9]", "", e) == clean_ev:
             return data["time"], data["sec"]
 
     return None, None
@@ -299,7 +307,7 @@ st.markdown("---")
 # ==============================================================================
 with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(st.session_state.swimmer_df is None)):
     st.write("1. Open Jessica's Swim England profile using the link above.")
-    st.write("2. Select all content from the page table, copy it, and paste it into the box below:")
+    st.write("2. Select all content from the page table, copy it, and paste it below:")
     raw_input = st.text_area("Paste table content here:", height=110, placeholder="Paste Swim England table text or HTML...")
     if st.button("🚀 Process & Store Times", use_container_width=True):
         parsed = parse_swim_england_table(raw_input)
@@ -320,11 +328,10 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
     tab_bulk, tab_single = st.tabs(["📋 Bulk Paste from Google Sheets", "✏️ Single Event Entry"])
 
     with tab_bulk:
-        st.write("Copy and paste cells directly from Google Sheets or Excel with headers like `Event`, `Yorkshires 11`, `NER 12`, etc.:")
-        b_course = st.selectbox("Assign Course for Copied Block:", ["Short Course (25m)", "Long Course (50m)"])
+        st.write("Paste cells from Google Sheets / Excel with headers like `Event`, `Yorkshire LC 11`, `Yorkshire SC (Winter) 12`, `NER LC 11`, `NER SC (Winter) 12`:")
         tsv_paste = st.text_area("Paste spreadsheet cells here:", height=110)
         if st.button("📥 Import Standards", use_container_width=True):
-            count = parse_google_sheets_tsv(tsv_paste, b_course)
+            count = parse_google_sheets_tsv(tsv_paste)
             if count > 0:
                 st.success(f"Loaded and saved {count} standards!")
                 st.rerun()
@@ -336,16 +343,15 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             s_ev = st.selectbox("Event", all_evs)
-            s_course = st.selectbox("Course", ["Short Course (25m)", "Long Course (50m)"])
         with col_s2:
-            s_meet = st.selectbox("Meet", ["Yorkshires", "Yorkshire Winter", "NERs", "NER Winter"])
+            s_meet = st.selectbox("Championship Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
             s_age = st.selectbox("Age Band", ["11", "12"])
         with col_s3:
-            s_val = st.text_input("Target Cut (e.g. 32.50)")
+            s_val = st.text_input("Target Cut (e.g. 32.50 or 1:08.20)")
             if st.button("💾 Save Standard", use_container_width=True):
                 sec = time_to_seconds(s_val)
                 if sec:
-                    st.session_state.standards_db[(s_meet, s_age, s_course, s_ev.lower())] = {"time": s_val.strip(), "sec": sec}
+                    st.session_state.standards_db[(s_meet, s_age, s_ev.lower())] = {"time": s_val.strip(), "sec": sec}
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
 
@@ -362,29 +368,42 @@ with f_col2:
         horizontal=True,
     )
 
-# Unique Events Gala Sort
+# Unique Events in Olympic Gala Sequence
 unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
 
-# Calculate Unique Yorkshires Cuts for Active Age
+# Helper function to compute Jessica's best eligible time for a meet type
+def get_best_eligible_times(ev):
+    ev_rows = df[df["Event"] == ev]
+    lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
+    sc_sub = ev_rows[ev_rows["Course"] == "Short Course (25m)"]
+
+    lc_pb_sec = lc_sub.iloc[0]["PB_Sec"] if not lc_sub.empty else None
+    sc_conv_lc_sec = sc_sub.iloc[0]["Conv_Sec"] if not sc_sub.empty else None
+
+    # For LC meets: fastest of LC PB and SC converted to LC
+    lc_candidates = [s for s in [lc_pb_sec, sc_conv_lc_sec] if s is not None]
+    best_lc_sec = min(lc_candidates) if lc_candidates else None
+
+    sc_pb_sec = sc_sub.iloc[0]["PB_Sec"] if not sc_sub.empty else None
+    lc_conv_sc_sec = lc_sub.iloc[0]["Conv_Sec"] if not lc_sub.empty else None
+
+    # For SC Winter meets: fastest of SC PB and LC converted to SC
+    sc_candidates = [s for s in [sc_pb_sec, lc_conv_sc_sec] if s is not None]
+    best_sc_sec = min(sc_candidates) if sc_candidates else None
+
+    return best_lc_sec, best_sc_sec
+
+# Calculate Unique Yorkshire LC Cuts for Active Age
 unique_yks_cuts = 0
 for ev in unique_events:
-    sub = df[df["Event"] == ev]
-    is_q = False
-    for _, r in sub.iterrows():
-        _, target_s = lookup_standard("Yorkshires", active_age, r["Course"], ev)
-        if target_s is not None:
-            if r["PB_Sec"] is not None and r["PB_Sec"] <= target_s:
-                is_q = True
-                break
-            if r["Conv_Sec"] is not None and r["Conv_Sec"] <= target_s:
-                is_q = True
-                break
-    if is_q:
+    best_lc_sec, _ = get_best_eligible_times(ev)
+    _, target_s = lookup_standard("Yorkshire LC", active_age, ev)
+    if target_s is not None and best_lc_sec is not None and best_lc_sec <= target_s:
         unique_yks_cuts += 1
 
 # Metric Row
 m1, m2, m3, m4 = st.columns(4)
-m1.metric(f"Unique Yorkshires (Age {active_age})", unique_yks_cuts)
+m1.metric(f"Unique Yorkshire LC Cuts (Age {active_age})", unique_yks_cuts)
 m2.metric("Total Events Logged", len(unique_events))
 m3.metric("Total Recorded PBs", len(df))
 m4.metric("Standards Configured", len(st.session_state.standards_db))
@@ -392,7 +411,7 @@ m4.metric("Standards Configured", len(st.session_state.standards_db))
 st.markdown("---")
 
 # ==============================================================================
-# 10. UNIFIED EVENT CARDS (CLEAN UI COMPONENTS, ZERO STRING ERRORS)
+# 10. UNIFIED EVENT CARDS (ONE PB BLOCK + ONE QUALIFYING MATRIX)
 # ==============================================================================
 for ev in unique_events:
     if selected_stroke != "All Events" and selected_stroke.lower() not in ev.lower():
@@ -402,129 +421,162 @@ for ev in unique_events:
     lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
     sc_sub = ev_rows[ev_rows["Course"] == "Short Course (25m)"]
 
+    best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
+
+    # Lookup all 4 standards for both Age 11 and Age 12
+    yks_lc_11_t, yks_lc_11_s = lookup_standard("Yorkshire LC", "11", ev)
+    yks_lc_12_t, yks_lc_12_s = lookup_standard("Yorkshire LC", "12", ev)
+    yks_sc_11_t, yks_sc_11_s = lookup_standard("Yorkshire SC (Winter)", "11", ev)
+    yks_sc_12_t, yks_sc_12_s = lookup_standard("Yorkshire SC (Winter)", "12", ev)
+
+    ner_lc_11_t, ner_lc_11_s = lookup_standard("NER LC", "11", ev)
+    ner_lc_12_t, ner_lc_12_s = lookup_standard("NER LC", "12", ev)
+    ner_sc_11_t, ner_sc_11_s = lookup_standard("NER SC (Winter)", "11", ev)
+    ner_sc_12_t, ner_sc_12_s = lookup_standard("NER SC (Winter)", "12", ev)
+
+    # Evaluate against fastest eligible time (LC evaluated against best_lc_sec, SC against best_sc_sec)
+    eval_yks_lc_11 = evaluate_pace(best_lc_sec, yks_lc_11_s)
+    eval_yks_lc_12 = evaluate_pace(best_lc_sec, yks_lc_12_s)
+    eval_yks_sc_11 = evaluate_pace(best_sc_sec, yks_sc_11_s)
+    eval_yks_sc_12 = evaluate_pace(best_sc_sec, yks_sc_12_s)
+
+    eval_ner_lc_11 = evaluate_pace(best_lc_sec, ner_lc_11_s)
+    eval_ner_lc_12 = evaluate_pace(best_lc_sec, ner_lc_12_s)
+    eval_ner_sc_11 = evaluate_pace(best_sc_sec, ner_sc_11_s)
+    eval_ner_sc_12 = evaluate_pace(best_sc_sec, ner_sc_12_s)
+
     with st.container():
         st.subheader(f"🏊 {ev}")
 
-        # --- 1. LONG COURSE ROW ---
-        if not lc_sub.empty:
-            lc_r = lc_sub.iloc[0]
-            col_l, col_r = st.columns([1, 1])
+        card_left, card_right = st.columns([1, 1])
 
-            # Retrieve targets
-            y11_t, y11_s = lookup_standard("Yorkshires", "11", "Long Course (50m)", ev)
-            y12_t, y12_s = lookup_standard("Yorkshires", "12", "Long Course (50m)", ev)
-            n11_t, n11_s = lookup_standard("NERs", "11", "Long Course (50m)", ev)
-            n12_t, n12_s = lookup_standard("NERs", "12", "Long Course (50m)", ev)
-            yw_t, _ = lookup_standard("Yorkshire Winter", active_age, "Long Course (50m)", ev)
-            nw_t, _ = lookup_standard("NER Winter", active_age, "Long Course (50m)", ev)
+        # ------------------------------------------------------------------
+        # LEFT COLUMN: ONE UNIFIED PB BLOCK (LC ON TOP, SC DIRECTLY UNDERNEATH)
+        # ------------------------------------------------------------------
+        with card_left:
+            st.markdown('<div class="times-box">', unsafe_allow_html=True)
 
-            # Evaluate
-            ev_y11 = evaluate_pace(lc_r["PB_Sec"], y11_s)
-            ev_y12 = evaluate_pace(lc_r["PB_Sec"], y12_s)
-            ev_n11 = evaluate_pace(lc_r["PB_Sec"], n11_s)
-            ev_n12 = evaluate_pace(lc_r["PB_Sec"], n12_s)
-
-            with col_l:
+            # Long Course PB Row
+            if not lc_sub.empty:
+                lc_r = lc_sub.iloc[0]
                 st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
-                st.markdown(
-                    f"**Yorkshires:** Age 11: `{y11_t or '--'}` ({ev_y11[1]}) &bull; "
-                    f"Age 12: `{y12_t or '--'}` ({ev_y12[1]})"
-                )
-                st.markdown(
-                    f"**NERs:** Age 11: `{n11_t or '--'}` ({ev_n11[1]}) &bull; "
-                    f"Age 12: `{n12_t or '--'}` ({ev_n12[1]})"
-                )
-                st.markdown(
-                    f"**Winter (Age {active_age}):** YKS: `{yw_t or '--'}` &bull; NER: `{nw_t or '--'}`"
-                )
+            else:
+                st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
 
-            with col_r:
-                act_y_s = y11_s if active_age == "11" else y12_s
-                act_n_s = n11_s if active_age == "11" else n12_s
-                if act_y_s is not None:
-                    res_y = evaluate_pace(lc_r["PB_Sec"], act_y_s)
-                    st.caption(f"LC Yorkshires (Age {active_age}): {res_y[0]} ({res_y[3]:.1f}%)")
-                    st.progress(res_y[3] / 100.0)
-                if act_n_s is not None:
-                    res_n = evaluate_pace(lc_r["PB_Sec"], act_n_s)
-                    st.caption(f"LC NERs (Age {active_age}): {res_n[0]} ({res_n[3]:.1f}%)")
-                    st.progress(res_n[3] / 100.0)
-        else:
-            st.caption("No official Long Course (50m) PB recorded for this event.")
-
-        st.markdown("---")
-
-        # --- 2. SHORT COURSE ROW ---
-        if not sc_sub.empty:
-            sc_r = sc_sub.iloc[0]
-            col_sl, col_sr = st.columns([1, 1])
-
-            # Retrieve targets
-            sy11_t, sy11_s = lookup_standard("Yorkshires", "11", "Short Course (25m)", ev)
-            sy12_t, sy12_s = lookup_standard("Yorkshires", "12", "Short Course (25m)", ev)
-            sn11_t, sn11_s = lookup_standard("NERs", "11", "Short Course (25m)", ev)
-            sn12_t, sn12_s = lookup_standard("NERs", "12", "Short Course (25m)", ev)
-            syw_t, _ = lookup_standard("Yorkshire Winter", active_age, "Short Course (25m)", ev)
-            snw_t, _ = lookup_standard("NER Winter", active_age, "Short Course (25m)", ev)
-
-            # Evaluate
-            s_ev_y11 = evaluate_pace(sc_r["PB_Sec"], sy11_s)
-            s_ev_y12 = evaluate_pace(sc_r["PB_Sec"], sy12_s)
-            s_ev_n11 = evaluate_pace(sc_r["PB_Sec"], sn11_s)
-            s_ev_n12 = evaluate_pace(sc_r["PB_Sec"], sn12_s)
-
-            with col_sl:
+            # Short Course PB Row Directly Underneath
+            if not sc_sub.empty:
+                sc_r = sc_sub.iloc[0]
                 st.markdown(f"**🏊‍♀️ SC PB:** `{sc_r['PB_Time']}` &nbsp;|&nbsp; Conv LC: `{sc_r['Conv_Time']}`")
-                st.markdown(
-                    f"**Yorkshires:** Age 11: `{sy11_t or '--'}` ({s_ev_y11[1]}) &bull; "
-                    f"Age 12: `{sy12_t or '--'}` ({s_ev_y12[1]})"
-                )
-                st.markdown(
-                    f"**NERs:** Age 11: `{sn11_t or '--'}` ({s_ev_n11[1]}) &bull; "
-                    f"Age 12: `{sn12_t or '--'}` ({s_ev_n12[1]})"
-                )
-                st.markdown(
-                    f"**Winter (Age {active_age}):** YKS: `{syw_t or '--'}` &bull; NER: `{snw_t or '--'}`"
-                )
+            else:
+                st.markdown("**🏊‍♀️ SC PB:** *No official SC PB recorded*")
 
-            with col_sr:
-                act_sy_s = sy11_s if active_age == "11" else sy12_s
-                act_sn_s = sn11_s if active_age == "11" else sn12_s
-                if act_sy_s is not None:
-                    res_sy = evaluate_pace(sc_r["PB_Sec"], act_sy_s)
-                    st.caption(f"SC Yorkshires (Age {active_age}): {res_sy[0]} ({res_sy[3]:.1f}%)")
-                    st.progress(res_sy[3] / 100.0)
-                if act_sn_s is not None:
-                    res_sn = evaluate_pace(sc_r["PB_Sec"], act_sn_s)
-                    st.caption(f"SC NERs (Age {active_age}): {res_sn[0]} ({res_sn[3]:.1f}%)")
-                    st.progress(res_sn[3] / 100.0)
-        else:
-            st.caption("No official Short Course (25m) PB recorded for this event.")
+            # Reference time notification
+            st.caption(
+                f"Reference Times &bull; Best LC Eligible: **`{seconds_to_time(best_lc_sec)}`** &bull; "
+                f"Best SC Eligible: **`{seconds_to_time(best_sc_sec)}`**"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            # --------------------------------------------------------------
+            # ONE SINGLE SET OF QUALIFYING TIMES WITH COLOR-CODED ATTAINMENT
+            # --------------------------------------------------------------
+            st.markdown('<div class="matrix-box">', unsafe_allow_html=True)
+            st.markdown(
+                f"**Yorkshire LC:**  \n"
+                f"Age 11: `{yks_lc_11_t or '--'}` &rarr; <span class='{eval_yks_lc_11[2]}'>{eval_yks_lc_11[1]} ({eval_yks_lc_11[0]})</span> &nbsp;|&nbsp; "
+                f"Age 12: `{yks_lc_12_t or '--'}` &rarr; <span class='{eval_yks_lc_12[2]}'>{eval_yks_lc_12[1]} ({eval_yks_lc_12[0]})</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"**Yorkshire SC (Winter):**  \n"
+                f"Age 11: `{yks_sc_11_t or '--'}` &rarr; <span class='{eval_yks_sc_11[2]}'>{eval_yks_sc_11[1]} ({eval_yks_sc_11[0]})</span> &nbsp;|&nbsp; "
+                f"Age 12: `{yks_sc_12_t or '--'}` &rarr; <span class='{eval_yks_sc_12[2]}'>{eval_yks_sc_12[1]} ({eval_yks_sc_12[0]})</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"**NER LC:**  \n"
+                f"Age 11: `{ner_lc_11_t or '--'}` &rarr; <span class='{eval_ner_lc_11[2]}'>{eval_ner_lc_11[1]} ({eval_ner_lc_11[0]})</span> &nbsp;|&nbsp; "
+                f"Age 12: `{ner_lc_12_t or '--'}` &rarr; <span class='{eval_ner_lc_12[2]}'>{eval_ner_lc_12[1]} ({eval_ner_lc_12[0]})</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"**NER SC (Winter):**  \n"
+                f"Age 11: `{ner_sc_11_t or '--'}` &rarr; <span class='{eval_ner_sc_11[2]}'>{eval_ner_sc_11[1]} ({eval_ner_sc_11[0]})</span> &nbsp;|&nbsp; "
+                f"Age 12: `{ner_sc_12_t or '--'}` &rarr; <span class='{eval_ner_sc_12[2]}'>{eval_ner_sc_12[1]} ({eval_ner_sc_12[0]})</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ------------------------------------------------------------------
+        # RIGHT COLUMN: ACTIVE AGE BAND PROGRESS GAUGES
+        # ------------------------------------------------------------------
+        with card_right:
+            st.write(f"**Championship Progress (Active: Age {active_age})**")
+
+            # 1. Yorkshire LC Gauge
+            act_yks_lc_eval = eval_yks_lc_11 if active_age == "11" else eval_yks_lc_12
+            if act_yks_lc_eval[0] != "No Cut":
+                st.caption(f"Yorkshire LC: {act_yks_lc_eval[0]} ({act_yks_lc_eval[3]:.1f}%)")
+                st.progress(act_yks_lc_eval[3] / 100.0)
+            else:
+                st.caption("Yorkshire LC: No target set.")
+
+            # 2. Yorkshire SC (Winter) Gauge
+            act_yks_sc_eval = eval_yks_sc_11 if active_age == "11" else eval_yks_sc_12
+            if act_yks_sc_eval[0] != "No Cut":
+                st.caption(f"Yorkshire SC (Winter): {act_yks_sc_eval[0]} ({act_yks_sc_eval[3]:.1f}%)")
+                st.progress(act_yks_sc_eval[3] / 100.0)
+            else:
+                st.caption("Yorkshire SC (Winter): No target set.")
+
+            # 3. NER LC Gauge
+            act_ner_lc_eval = eval_ner_lc_11 if active_age == "11" else eval_ner_lc_12
+            if act_ner_lc_eval[0] != "No Cut":
+                st.caption(f"NER LC: {act_ner_lc_eval[0]} ({act_ner_lc_eval[3]:.1f}%)")
+                st.progress(act_ner_lc_eval[3] / 100.0)
+            else:
+                st.caption("NER LC: No target set.")
+
+            # 4. NER SC (Winter) Gauge
+            act_ner_sc_eval = eval_ner_sc_11 if active_age == "11" else eval_ner_sc_12
+            if act_ner_sc_eval[0] != "No Cut":
+                st.caption(f"NER SC (Winter): {act_ner_sc_eval[0]} ({act_ner_sc_eval[3]:.1f}%)")
+                st.progress(act_ner_sc_eval[3] / 100.0)
+            else:
+                st.caption("NER SC (Winter): No target set.")
+
+        st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
 # 11. TABULAR SUMMARY VIEW
 # ==============================================================================
-with st.expander("📋 Tabular View of All Swims"):
+with st.expander("📋 Tabular View of All Swims & Active Age Standards"):
     summary_rows = []
-    for _, r in df.iterrows():
-        y_cut, y_s = lookup_standard("Yorkshires", active_age, r["Course"], r["Event"])
-        n_cut, n_s = lookup_standard("NERs", active_age, r["Course"], r["Event"])
-        res_y = evaluate_pace(r["PB_Sec"], y_s)
-        res_n = evaluate_pace(r["PB_Sec"], n_s)
+    for ev in unique_events:
+        best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
+        y_lc_t, y_lc_s = lookup_standard("Yorkshire LC", active_age, ev)
+        y_sc_t, y_sc_s = lookup_standard("Yorkshire SC (Winter)", active_age, ev)
+        n_lc_t, n_lc_s = lookup_standard("NER LC", active_age, ev)
+        n_sc_t, n_sc_s = lookup_standard("NER SC (Winter)", active_age, ev)
+
+        ev_y_lc = evaluate_pace(best_lc_sec, y_lc_s)
+        ev_y_sc = evaluate_pace(best_sc_sec, y_sc_s)
+        ev_n_lc = evaluate_pace(best_lc_sec, n_lc_s)
+        ev_n_sc = evaluate_pace(best_sc_sec, n_sc_s)
 
         summary_rows.append({
-            "Course": r["Course"],
-            "Event": r["Event"],
-            "PB Time": r["PB_Time"],
-            "Converted Time": r["Conv_Time"],
-            f"Yorkshires ({active_age}) Cut": y_cut or "--",
-            "YKS Status": res_y[0],
-            "YKS Gap": res_y[1],
-            f"NERs ({active_age}) Cut": n_cut or "--",
-            "NER Status": res_n[0],
-            "NER Gap": res_n[1],
+            "Event": ev,
+            "Best LC Eligible": seconds_to_time(best_lc_sec),
+            f"Yorkshire LC ({active_age})": y_lc_t or "--",
+            "YKS LC Status": ev_y_lc[0],
+            "YKS LC Gap": ev_y_lc[1],
+            "Best SC Eligible": seconds_to_time(best_sc_sec),
+            f"Yorkshire SC ({active_age})": y_sc_t or "--",
+            "YKS SC Status": ev_y_sc[0],
+            f"NER LC ({active_age})": n_lc_t or "--",
+            "NER LC Status": ev_n_lc[0],
+            f"NER SC ({active_age})": n_sc_t or "--",
+            "NER SC Status": ev_n_sc[0],
         })
 
     view_df = pd.DataFrame(summary_rows)
