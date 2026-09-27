@@ -1,0 +1,138 @@
+{
+  "Yorkshire LC|||11|||50m freestyle": {
+    "time": "28.20",
+    "sec": 28.2
+  },
+  "Yorkshire LC|||12|||50m freestyle": {
+    "time": "31.40",
+    "sec": 31.4
+  },
+  "Yorkshire LC|||11|||100m freestyle": {
+    "time": "1:00.90",
+    "sec": 60.9
+  },
+  "Yorkshire LC|||12|||100m freestyle": {
+    "time": "1:09.30",
+    "sec": 69.3
+  },
+  "Yorkshire LC|||11|||200m freestyle": {
+    "time": "2:11.90",
+    "sec": 131.9
+  },
+  "Yorkshire LC|||12|||200m freestyle": {
+    "time": "2:30.80",
+    "sec": 150.8
+  },
+  "Yorkshire LC|||11|||400m freestyle": {
+    "time": "4:26.10",
+    "sec": 266.1
+  },
+  "Yorkshire LC|||12|||400m freestyle": {
+    "time": "5:13.60",
+    "sec": 313.6
+  },
+  "Yorkshire LC|||11|||800m freestyle": {
+    "time": "9:48.90",
+    "sec": 588.9
+  },
+  "Yorkshire LC|||11|||1500m freestyle": {
+    "time": "17:55.20",
+    "sec": 1075.2
+  },
+  "Yorkshire LC|||11|||50m backstroke": {
+    "time": "32.40",
+    "sec": 32.4
+  },
+  "Yorkshire LC|||12|||50m backstroke": {
+    "time": "37.40",
+    "sec": 37.4
+  },
+  "Yorkshire LC|||11|||100m backstroke": {
+    "time": "1:09.20",
+    "sec": 69.2
+  },
+  "Yorkshire LC|||12|||100m backstroke": {
+    "time": "1:20.30",
+    "sec": 80.3
+  },
+  "Yorkshire LC|||11|||200m backstroke": {
+    "time": "2:32.10",
+    "sec": 152.1
+  },
+  "Yorkshire LC|||12|||200m backstroke": {
+    "time": "2:51.10",
+    "sec": 171.1
+  },
+  "Yorkshire LC|||11|||50m breaststroke": {
+    "time": "36.40",
+    "sec": 36.4
+  },
+  "Yorkshire LC|||12|||50m breaststroke": {
+    "time": "42.00",
+    "sec": 42.0
+  },
+  "Yorkshire LC|||11|||100m breaststroke": {
+    "time": "1:19.00",
+    "sec": 79.0
+  },
+  "Yorkshire LC|||12|||100m breaststroke": {
+    "time": "1:32.20",
+    "sec": 92.2
+  },
+  "Yorkshire LC|||11|||200m breaststroke": {
+    "time": "2:55.30",
+    "sec": 175.3
+  },
+  "Yorkshire LC|||12|||200m breaststroke": {
+    "time": "3:14.80",
+    "sec": 194.8
+  },
+  "Yorkshire LC|||11|||50m butterfly": {
+    "time": "30.30",
+    "sec": 30.3
+  },
+  "Yorkshire LC|||12|||50m butterfly": {
+    "time": "36.10",
+    "sec": 36.1
+  },
+  "Yorkshire LC|||11|||100m butterfly": {
+    "time": "1:07.30",
+    "sec": 67.3
+  },
+  "Yorkshire LC|||12|||100m butterfly": {
+    "time": "1:23.90",
+    "sec": 83.9
+  },
+  "Yorkshire LC|||11|||200m butterfly": {
+    "time": "2:34.50",
+    "sec": 154.5
+  },
+  "Yorkshire LC|||12|||200m butterfly": {
+    "time": "3:10.90",
+    "sec": 190.9
+  },
+  "Yorkshire LC|||11|||100m ind. medley": {
+    "time": "1:09.40",
+    "sec": 69.4
+  },
+  "Yorkshire LC|||12|||100m ind. medley": {
+    "time": "1:23.40",
+    "sec": 83.4
+  },
+  "Yorkshire LC|||11|||200m ind. medley": {
+    "time": "2:29.80",
+    "sec": 149.8
+  },
+  "Yorkshire LC|||12|||200m ind. medley": {
+    "time": "2:52.40",
+    "sec": 172.4
+  },
+  "Yorkshire LC|||11|||400m ind. medley": {
+    "time": "5:13.10",
+    "sec": 313.1
+  },
+  "Yorkshire LC|||12|||400m ind. medley": {
+    "time": "6:05.10",
+    "sec": 365.1
+  }
+}

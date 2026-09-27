@@ -1,0 +1,281 @@
+[
+  {
+    "Course": "Long Course (50m)",
+    "Event": "50 Freestyle",
+    "PB_Time": "34.94",
+    "PB_Sec": 34.94,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "34.30",
+    "Conv_Sec": 34.3
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "100 Freestyle",
+    "PB_Time": "1:17.54",
+    "PB_Sec": 77.53999999999999,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "1:16.50",
+    "Conv_Sec": 76.5
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "200 Freestyle",
+    "PB_Time": "2:48.64",
+    "PB_Sec": 168.64,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "2:46.60",
+    "Conv_Sec": 166.6
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "400 Freestyle",
+    "PB_Time": "5:52.06",
+    "PB_Sec": 352.06,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "5:48.00",
+    "Conv_Sec": 348.0
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "50 Breaststroke",
+    "PB_Time": "43.53",
+    "PB_Sec": 43.53,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "42.80",
+    "Conv_Sec": 42.8
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "100 Breaststroke",
+    "PB_Time": "1:36.40",
+    "PB_Sec": 96.4,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "1:35.10",
+    "Conv_Sec": 95.1
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "200 Breaststroke",
+    "PB_Time": "3:20.06",
+    "PB_Sec": 200.06,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "3:17.40",
+    "Conv_Sec": 197.4
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "50 Butterfly",
+    "PB_Time": "40.45",
+    "PB_Sec": 40.45,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "40.00",
+    "Conv_Sec": 40.0
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "100 Butterfly",
+    "PB_Time": "1:29.62",
+    "PB_Sec": 89.62,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "1:28.80",
+    "Conv_Sec": 88.8
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "200 Butterfly",
+    "PB_Time": "3:14.71",
+    "PB_Sec": 194.71,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "3:13.10",
+    "Conv_Sec": 193.1
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "50 Backstroke",
+    "PB_Time": "42.43",
+    "PB_Sec": 42.43,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "42.00",
+    "Conv_Sec": 42.0
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "100 Backstroke",
+    "PB_Time": "1:30.45",
+    "PB_Sec": 90.45,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "1:29.60",
+    "Conv_Sec": 89.6
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "200 Backstroke",
+    "PB_Time": "3:10.40",
+    "PB_Sec": 190.4,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "3:08.60",
+    "Conv_Sec": 188.6
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "200 Individual Medley",
+    "PB_Time": "3:05.97",
+    "PB_Sec": 185.97,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "3:03.80",
+    "Conv_Sec": 183.8
+  },
+  {
+    "Course": "Long Course (50m)",
+    "Event": "400 Individual Medley",
+    "PB_Time": "6:36.44",
+    "PB_Sec": 396.44,
+    "Conv_Label": "Conv to SC",
+    "Conv_Time": "6:32.00",
+    "Conv_Sec": 392.0
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "50 Freestyle",
+    "PB_Time": "35.03",
+    "PB_Sec": 35.03,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "35.60",
+    "Conv_Sec": 35.6
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "100 Freestyle",
+    "PB_Time": "1:18.64",
+    "PB_Sec": 78.64,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "1:19.70",
+    "Conv_Sec": 79.7
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "200 Freestyle",
+    "PB_Time": "2:53.92",
+    "PB_Sec": 173.92000000000002,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "2:55.90",
+    "Conv_Sec": 175.9
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "400 Freestyle",
+    "PB_Time": "5:55.70",
+    "PB_Sec": 355.7,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "5:59.60",
+    "Conv_Sec": 359.6
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "50 Breaststroke",
+    "PB_Time": "43.34",
+    "PB_Sec": 43.34,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "44.10",
+    "Conv_Sec": 44.1
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "100 Breaststroke",
+    "PB_Time": "1:34.83",
+    "PB_Sec": 94.83,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "1:36.20",
+    "Conv_Sec": 96.2
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "200 Breaststroke",
+    "PB_Time": "3:20.21",
+    "PB_Sec": 200.21,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "3:22.80",
+    "Conv_Sec": 202.8
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "50 Butterfly",
+    "PB_Time": "39.98",
+    "PB_Sec": 39.98,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "40.50",
+    "Conv_Sec": 40.5
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "100 Butterfly",
+    "PB_Time": "1:27.41",
+    "PB_Sec": 87.41,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "1:28.30",
+    "Conv_Sec": 88.3
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "200 Butterfly",
+    "PB_Time": "3:19.59",
+    "PB_Sec": 199.59,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "3:21.20",
+    "Conv_Sec": 201.2
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "50 Backstroke",
+    "PB_Time": "41.16",
+    "PB_Sec": 41.16,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "41.60",
+    "Conv_Sec": 41.6
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "100 Backstroke",
+    "PB_Time": "1:29.30",
+    "PB_Sec": 89.3,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "1:30.20",
+    "Conv_Sec": 90.2
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "200 Backstroke",
+    "PB_Time": "3:08.14",
+    "PB_Sec": 188.14,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "3:09.90",
+    "Conv_Sec": 189.9
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "200 Individual Medley",
+    "PB_Time": "3:01.47",
+    "PB_Sec": 181.47,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "3:03.60",
+    "Conv_Sec": 183.6
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "400 Individual Medley",
+    "PB_Time": "6:17.56",
+    "PB_Sec": 377.56,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "6:22.20",
+    "Conv_Sec": 382.2
+  },
+  {
+    "Course": "Short Course (25m)",
+    "Event": "100 Individual Medley",
+    "PB_Time": "1:28.16",
+    "PB_Sec": 88.16,
+    "Conv_Label": "Conv to LC",
+    "Conv_Time": "1:28.20",
+    "Conv_Sec": 88.2
+  }
+]
