@@ -2,12 +2,13 @@ import io
 import json
 import os
 import re
+import urllib.parse
 import pandas as pd
 from bs4 import BeautifulSoup
 import streamlit as st
 
 # ==============================================================================
-# 1. APPLICATION & SWIMMER PROFILE CONFIG
+# 1. APPLICATION & PROFILE CONFIG
 # ==============================================================================
 SWIMMER_NAME = "Jessica Sutcliffe"
 SWIMMER_TIREF = "1749292"
@@ -28,7 +29,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STABLE CSS INJECTION (CLUB PALETTE & COLOR-CODED TEXT)
+# 2. STYLING
 # ==============================================================================
 st.markdown(
     """
@@ -65,7 +66,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. TIME CONVERSION & MATHEMATICS
+# 3. TIME HELPERS
 # ==============================================================================
 def time_to_seconds(val):
     if not val or pd.isna(val):
@@ -84,13 +85,12 @@ def seconds_to_time(sec):
     if sec is None or pd.isna(sec):
         return "--"
     mins = int(sec // 60)
-    remainder = sec % 60
+    rem = sec % 60
     if mins > 0:
-        return f"{mins}:{remainder:05.2f}"
-    return f"{remainder:05.2f}"
+        return f"{mins}:{rem:05.2f}"
+    return f"{rem:05.2f}"
 
 def evaluate_pace(pb_sec, target_sec):
-    """Returns (status_label, gap_display, color_css_class, percentage_pace)."""
     if pb_sec is None or target_sec is None or pd.isna(pb_sec) or pd.isna(target_sec):
         return "No Cut", "--", "txt-gray", 0.0
     try:
@@ -109,9 +109,6 @@ def evaluate_pace(pb_sec, target_sec):
     else:
         return "Chasing ⏱️", f"+{gap:.2f}s", "txt-red", pct
 
-# ==============================================================================
-# 4. GALA SEQUENCE ENGINE (FREE -> BACK -> BREAST -> FLY -> IM & DISTANCE)
-# ==============================================================================
 def gala_order_key(event_name):
     name = str(event_name).lower()
     if "free" in name:
@@ -132,7 +129,7 @@ def gala_order_key(event_name):
     return (stroke, dist, name)
 
 # ==============================================================================
-# 5. PERMANENT FILE STORAGE HELPERS
+# 4. STORAGE HELPERS
 # ==============================================================================
 def load_saved_pbs():
     if os.path.exists(PBS_FILE):
@@ -150,8 +147,8 @@ def save_pbs_to_disk(df):
         try:
             with open(PBS_FILE, "w", encoding="utf-8") as f:
                 json.dump(df.to_dict(orient="records"), f, indent=2)
-        except Exception as e:
-            st.error(f"Error saving PBs to file: {e}")
+        except Exception:
+            pass
 
 def load_saved_standards():
     if os.path.exists(STANDARDS_FILE):
@@ -176,11 +173,11 @@ def save_standards_to_disk(standards_dict):
         }
         with open(STANDARDS_FILE, "w", encoding="utf-8") as f:
             json.dump(serializable, f, indent=2)
-    except Exception as e:
-        st.error(f"Error saving standards to file: {e}")
+    except Exception:
+        pass
 
 # ==============================================================================
-# 6. DATA INGESTION & CLIPBOARD PARSERS
+# 5. PARSERS (WITH EXACT AGE COLUMN BOUNDARIES)
 # ==============================================================================
 def parse_swim_england_table(raw_content):
     if not raw_content or not str(raw_content).strip():
@@ -272,54 +269,42 @@ def parse_swim_england_table(raw_content):
         return None
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
-def parse_google_sheets_tsv(tsv_data):
-    if not tsv_data or not str(tsv_data).strip():
-        return 0
-    lines = [ln.strip() for ln in str(tsv_data).strip().split("\n") if ln.strip()]
-    if not lines:
+def parse_standards_dataframe(df_raw, default_meet):
+    if df_raw.empty or df_raw.shape[1] < 2:
         return 0
 
-    sep = "\t" if "\t" in lines[0] else ","
-    try:
-        df = pd.read_csv(io.StringIO("\n".join(lines)), sep=sep)
-    except Exception:
-        return 0
-
-    if df.empty or df.shape[1] < 2:
-        return 0
-
-    ev_col = df.columns[0]
+    ev_col = df_raw.columns[0]
     saved_count = 0
 
-    for _, row in df.iterrows():
+    col_map = {}
+    for col in df_raw.columns[1:]:
+        col_str = str(col).strip().lower()
+        # Strict word boundary: matches '11' or 'age 11', but not '17'
+        if re.search(r"\b11\b", col_str) or "age 11" in col_str or "11yr" in col_str:
+            col_map[col] = "11"
+        elif re.search(r"\b12\b", col_str) or "age 12" in col_str or "12yr" in col_str:
+            col_map[col] = "12"
+
+    for _, row in df_raw.iterrows():
         ev = str(row[ev_col]).strip()
-        if not ev:
+        if not ev or "event" in ev.lower():
             continue
-        for col in df.columns[1:]:
-            col_l = str(col).lower()
+
+        for col, age_val in col_map.items():
             val_s = str(row[col]).strip()
             sec = time_to_seconds(val_s)
             if sec is None:
                 continue
 
-            if "ner" in col_l and ("winter" in col_l or "sc" in col_l):
-                meet = "NER SC (Winter)"
-            elif "ner" in col_l:
-                meet = "NER LC"
-            elif "york" in col_l and ("winter" in col_l or "sc" in col_l):
-                meet = "Yorkshire SC (Winter)"
-            else:
-                meet = "Yorkshire LC"
-
-            age = "12" if "12" in col_l else "11"
-            key = (meet, age, ev.lower())
+            clean_ev = re.sub(r"\s+", " ", ev).strip()
+            key = (default_meet, age_val, clean_ev.lower())
             st.session_state.standards_db[key] = {"time": val_s, "sec": sec}
             saved_count += 1
 
     return saved_count
 
 # ==============================================================================
-# 7. INITIALIZE PERSISTENT STATE
+# 6. SESSION STATE
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = load_saved_pbs()
@@ -340,7 +325,7 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 8. CLUB HEADER INTERFACE
+# 7. CLUB HEADER
 # ==============================================================================
 head_col1, head_col2 = st.columns([4, 1])
 with head_col1:
@@ -355,7 +340,7 @@ with head_col2:
 st.markdown("---")
 
 # ==============================================================================
-# 9. DATA INGESTION WORKFLOW EXPANDERS (WITH PERSISTENCE)
+# 8. INGESTION WORKFLOW
 # ==============================================================================
 with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(st.session_state.swimmer_df is None)):
     st.write("1. Open Jessica's Swim England profile using the link above.")
@@ -366,7 +351,7 @@ with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(
         if parsed is not None and not parsed.empty:
             st.session_state.swimmer_df = parsed
             save_pbs_to_disk(parsed)
-            st.success(f"Successfully captured and saved {len(parsed)} swim times permanently!")
+            st.success(f"Successfully captured and saved {len(parsed)} swim times!")
             st.rerun()
         else:
             st.error("No valid times found. Please check that table rows were included.")
@@ -377,20 +362,77 @@ if st.session_state.swimmer_df is None:
 
 df = st.session_state.swimmer_df
 
+# ==============================================================================
+# 9. STANDARDS IMPORT (TABLE DIRECT FROM GOOGLE SHEETS)
+# ==============================================================================
 with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manual)", expanded=False):
-    tab_bulk, tab_single = st.tabs(["📋 Bulk Paste from Google Sheets", "✏️ Single Event Entry"])
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
-    with tab_bulk:
-        st.write("Paste cells from Google Sheets / Excel with headers like `Event`, `Yorkshire LC 11`, `Yorkshire SC (Winter) 12`, `NER LC 11`, `NER SC (Winter) 12`:")
-        tsv_paste = st.text_area("Paste spreadsheet cells here:", height=110)
-        if st.button("📥 Import Standards", use_container_width=True):
-            count = parse_google_sheets_tsv(tsv_paste)
-            if count > 0:
-                save_standards_to_disk(st.session_state.standards_db)
-                st.success(f"Loaded and permanently saved {count} standards!")
-                st.rerun()
-            else:
-                st.error("Unable to parse. Ensure first column contains event names and headers include meet names.")
+    with tab_gsheet:
+        st.markdown(
+            "Paste your **normal Google Sheets link** below (make sure General Access is set to *'Anyone with the link can view'*):"
+        )
+        c_url, c_tab = st.columns([2, 1])
+        with c_url:
+            gsheet_raw_url = st.text_input(
+                "Google Sheet Link",
+                value="https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdMKp-w3yIT_qZxoHA6zFaxLdjuk/edit?usp=drivesdk",
+            )
+        with c_tab:
+            worksheet_tab_name = st.text_input("Worksheet Tab Name", value="export-qts")
+
+        sheet_meet = st.selectbox(
+            "Assign this sheet to Meet:",
+            ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
+            key="gsheet_meet",
+        )
+
+        if st.button("🔄 Sync Directly from Google Sheet", use_container_width=True):
+            try:
+                # Extract Sheet ID
+                match = re.search(r"/d/([a-zA-Z0-9-_]+)", gsheet_raw_url)
+                if not match:
+                    st.error("Invalid Google Sheet link. Could not extract the Sheet ID.")
+                else:
+                    sheet_id = match.group(1)
+                    encoded_tab = urllib.parse.quote(worksheet_tab_name.strip())
+                    # Google Visualisation API CSV endpoint (works without Publishing to Web)
+                    direct_csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
+
+                    df_sheet = pd.read_csv(direct_csv_url)
+                    count = parse_standards_dataframe(df_sheet, sheet_meet)
+                    if count > 0:
+                        save_standards_to_disk(st.session_state.standards_db)
+                        st.success(f"Successfully imported {count} standards for {sheet_meet}!")
+                        st.rerun()
+                    else:
+                        st.error(
+                            f"Loaded tab '{worksheet_tab_name}', but no columns with 'Age 11' or 'Age 12' were found. Columns detected: {list(df_sheet.columns)}"
+                        )
+            except Exception as e:
+                st.error(f"Could not load Google Sheet: {e}. Check that General Access is 'Anyone with link can view'.")
+
+    with tab_paste:
+        st.write("Paste cells copied directly from Google Sheets / Excel:")
+        paste_meet = st.selectbox(
+            "Assign pasted cells to Meet:",
+            ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
+            key="paste_meet",
+        )
+        tsv_paste = st.text_area("Paste cells here (tab or comma separated):", height=110)
+        if st.button("📥 Import Pasted Standards", use_container_width=True):
+            sep = "\t" if "\t" in tsv_paste else ","
+            try:
+                df_paste = pd.read_csv(io.StringIO(tsv_paste.strip()), sep=sep)
+                count = parse_standards_dataframe(df_paste, paste_meet)
+                if count > 0:
+                    save_standards_to_disk(st.session_state.standards_db)
+                    st.success(f"Loaded and saved {count} standards for {paste_meet}!")
+                    st.rerun()
+                else:
+                    st.error("Verify that headers include 'Age 11' or 'Age 12'.")
+            except Exception as e:
+                st.error(f"Error parsing table: {e}")
 
     with tab_single:
         all_evs = sorted(df["Event"].unique().tolist(), key=gala_order_key)
@@ -398,7 +440,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
         with col_s1:
             s_ev = st.selectbox("Event", all_evs)
         with col_s2:
-            s_meet = st.selectbox("Championship Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
+            s_meet = st.selectbox("Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
             s_age = st.selectbox("Age Band", ["11", "12"])
         with col_s3:
             s_val = st.text_input("Target Cut (e.g. 32.50 or 1:08.20)")
@@ -410,31 +452,8 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
 
-# Download backups for permanent inclusion in GitHub repo
-with st.expander("💾 Download / Backup Permanent JSON Files", expanded=False):
-    st.write("You can download these files and commit them to your GitHub repository so they persist even through complete cloud server rebuilds:")
-    c_dl1, c_dl2 = st.columns(2)
-    with c_dl1:
-        pbs_json_str = json.dumps(df.to_dict(orient="records"), indent=2)
-        st.download_button(
-            "📥 Download jessica_pbs.json",
-            data=pbs_json_str,
-            file_name="jessica_pbs.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-    with c_dl2:
-        std_serializable = {f"{k[0]}|||{k[1]}|||{k[2]}": v for k, v in st.session_state.standards_db.items()}
-        st.download_button(
-            "📥 Download standards.json",
-            data=json.dumps(std_serializable, indent=2),
-            file_name="standards.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
 # ==============================================================================
-# 10. DASHBOARD CONTROLS & FILTERING
+# 10. DASHBOARD FILTERS & KPI
 # ==============================================================================
 f_col1, f_col2 = st.columns([1, 2])
 with f_col1:
@@ -455,13 +474,11 @@ def get_best_eligible_times(ev):
 
     lc_pb_sec = lc_sub.iloc[0]["PB_Sec"] if not lc_sub.empty else None
     sc_conv_lc_sec = sc_sub.iloc[0]["Conv_Sec"] if not sc_sub.empty else None
-
     lc_candidates = [s for s in [lc_pb_sec, sc_conv_lc_sec] if s is not None]
     best_lc_sec = min(lc_candidates) if lc_candidates else None
 
     sc_pb_sec = sc_sub.iloc[0]["PB_Sec"] if not sc_sub.empty else None
     lc_conv_sc_sec = lc_sub.iloc[0]["Conv_Sec"] if not lc_sub.empty else None
-
     sc_candidates = [s for s in [sc_pb_sec, lc_conv_sc_sec] if s is not None]
     best_sc_sec = min(sc_candidates) if sc_candidates else None
 
@@ -475,7 +492,6 @@ for ev in unique_events:
     if target_s is not None and best_lc_sec is not None and best_lc_sec <= target_s:
         unique_yks_cuts += 1
 
-# Metric Row
 m1, m2, m3, m4 = st.columns(4)
 m1.metric(f"Unique Yorkshire LC Cuts (Age {active_age})", unique_yks_cuts)
 m2.metric("Total Events Logged", len(unique_events))
@@ -524,7 +540,6 @@ for ev in unique_events:
 
         with card_left:
             st.markdown('<div class="times-box">', unsafe_allow_html=True)
-
             if not lc_sub.empty:
                 lc_r = lc_sub.iloc[0]
                 st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
