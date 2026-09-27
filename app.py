@@ -21,120 +21,50 @@ st.set_page_config(
 # ==========================================
 # CITY OF LEEDS SC THEME STYLING
 # ==========================================
-st.markdown(
-    """
-    <style>
-        .main {
-            background-color: #f4f6fa;
-        }
-        .leeds-header {
-            background: linear-gradient(135deg, #001a4d 0%, #003399 70%, #0055d4 100%);
-            border-radius: 12px;
-            padding: 24px 28px;
-            color: #ffffff;
-            margin-bottom: 25px;
-            box-shadow: 0 4px 14px rgba(0, 32, 91, 0.15);
-            border-left: 6px solid #FFC72C;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .leeds-title {
-            font-size: 2.1rem;
-            font-weight: 800;
-            color: #ffffff;
-            margin: 0;
-            letter-spacing: -0.5px;
-        }
-        .leeds-sub {
-            font-size: 1.0rem;
-            color: #FFC72C;
-            font-weight: 600;
-            margin-top: 4px;
-        }
-        .event-card {
-            background: #ffffff;
-            border-radius: 10px;
-            padding: 18px 22px;
-            margin-bottom: 18px;
-            border: 1px solid #e1e6f0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            border-top: 4px solid #003399;
-        }
-        .event-header {
-            font-size: 1.35rem;
-            font-weight: 700;
-            color: #00205B;
-            margin-bottom: 12px;
-        }
-        .pill-lc {
-            background-color: #003399;
-            color: #ffffff;
-            font-weight: 700;
-            font-size: 0.8rem;
-            padding: 4px 10px;
-            border-radius: 6px;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        .pill-sc {
-            background-color: #008080;
-            color: #ffffff;
-            font-weight: 700;
-            font-size: 0.8rem;
-            padding: 4px 10px;
-            border-radius: 6px;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        .badge-green {
-            background-color: #d1e7dd;
-            color: #0f5132;
-            padding: 2px 7px;
-            border-radius: 5px;
-            font-weight: 700;
-            font-size: 0.85rem;
-            display: inline-block;
-        }
-        .badge-orange {
-            background-color: #ffe5d0;
-            color: #b25e00;
-            padding: 2px 7px;
-            border-radius: 5px;
-            font-weight: 700;
-            font-size: 0.85rem;
-            display: inline-block;
-        }
-        .badge-red {
-            background-color: #f8d7da;
-            color: #842029;
-            padding: 2px 7px;
-            border-radius: 5px;
-            font-weight: 700;
-            font-size: 0.85rem;
-            display: inline-block;
-        }
-        .badge-gray {
-            background-color: #e9ecef;
-            color: #6c757d;
-            padding: 2px 7px;
-            border-radius: 5px;
-            font-weight: 500;
-            font-size: 0.85rem;
-            display: inline-block;
-        }
-        div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #e1e6f0;
-            padding: 12px 16px;
-            border-radius: 10px;
-            border-bottom: 3px solid #FFC72C;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
+css_style = (
+    "<style>\n"
+    "    .main { background-color: #f4f6fa; }\n"
+    "    .leeds-header {\n"
+    "        background: linear-gradient(135deg, #001a4d 0%, #003399 70%, #0055d4 100%);\n"
+    "        border-radius: 12px;\n"
+    "        padding: 24px 28px;\n"
+    "        color: #ffffff;\n"
+    "        margin-bottom: 25px;\n"
+    "        box-shadow: 0 4px 14px rgba(0, 32, 91, 0.15);\n"
+    "        border-left: 6px solid #FFC72C;\n"
+    "        display: flex;\n"
+    "        align-items: center;\n"
+    "        justify-content: space-between;\n"
+    "    }\n"
+    "    .leeds-title { font-size: 2.1rem; font-weight: 800; color: #ffffff; margin: 0; letter-spacing: -0.5px; }\n"
+    "    .leeds-sub { font-size: 1.0rem; color: #FFC72C; font-weight: 600; margin-top: 4px; }\n"
+    "    .event-card {\n"
+    "        background: #ffffff;\n"
+    "        border-radius: 10px;\n"
+    "        padding: 18px 22px;\n"
+    "        margin-bottom: 18px;\n"
+    "        border: 1px solid #e1e6f0;\n"
+    "        box-shadow: 0 2px 8px rgba(0,0,0,0.04);\n"
+    "        border-top: 4px solid #003399;\n"
+    "    }\n"
+    "    .event-header { font-size: 1.35rem; font-weight: 700; color: #00205B; margin-bottom: 12px; }\n"
+    "    .pill-lc { background-color: #003399; color: #ffffff; font-weight: 700; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px; display: inline-block; margin-right: 8px; }\n"
+    "    .pill-sc { background-color: #008080; color: #ffffff; font-weight: 700; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px; display: inline-block; margin-right: 8px; }\n"
+    "    .badge-green { background-color: #d1e7dd; color: #0f5132; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
+    "    .badge-orange { background-color: #ffe5d0; color: #b25e00; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
+    "    .badge-red { background-color: #f8d7da; color: #842029; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.85rem; display: inline-block; }\n"
+    "    .badge-gray { background-color: #e9ecef; color: #6c757d; padding: 2px 7px; border-radius: 5px; font-weight: 500; font-size: 0.85rem; display: inline-block; }\n"
+    "    div[data-testid='stMetric'] {\n"
+    "        background-color: #ffffff;\n"
+    "        border: 1px solid #e1e6f0;\n"
+    "        padding: 12px 16px;\n"
+    "        border-radius: 10px;\n"
+    "        border-bottom: 3px solid #FFC72C;\n"
+    "        box-shadow: 0 2px 6px rgba(0,0,0,0.02);\n"
+    "    }\n"
+    "</style>\n"
 )
+st.markdown(css_style, unsafe_allow_html=True)
 
 # ==========================================
 # TIME HELPERS
@@ -382,19 +312,19 @@ if "multi_targets" not in st.session_state:
 # CITY OF LEEDS CLUB HEADER
 # ==========================================
 header_html = (
-    '<div class="leeds-header">'
-    '  <div>'
-    f'    <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>'
-    '    <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; CHAMPIONSHIP STANDARDS TRACKER</div>'
-    '    <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">'
-    f'      Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; '
-    f'      <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>'
-    '    </div>'
-    '  </div>'
-    '  <div>'
-    f'    <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display=\'none\'">'
-    '  </div>'
-    '</div>'
+    '<div class="leeds-header">\n'
+    '  <div>\n'
+    f'    <div class="leeds-title">🏊‍♀️ {SWIMMER_NAME}</div>\n'
+    '    <div class="leeds-sub">CITY OF LEEDS SWIMMING CLUB &bull; CHAMPIONSHIP STANDARDS TRACKER</div>\n'
+    '    <div style="font-size: 0.85rem; color: #d0e0ff; margin-top: 4px;">\n'
+    f'      Swim England Number: <b>{SWIMMER_TIREF}</b> &bull; \n'
+    f'      <a href="{SWIMMER_URL}" target="_blank" style="color: #FFC72C; text-decoration: underline;">View Live Swim England Profile</a>\n'
+    '    </div>\n'
+    '  </div>\n'
+    '  <div>\n'
+    f'    <img src="{CLUB_LOGO_URL}" style="max-height: 85px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px;" alt="City of Leeds SC" onerror="this.style.display=\'none\'">\n'
+    '  </div>\n'
+    '</div>\n'
 )
 st.markdown(header_html, unsafe_allow_html=True)
 
@@ -402,14 +332,13 @@ st.markdown(header_html, unsafe_allow_html=True)
 # SYNC MODAL FOR SWIM RESULTS
 # ==========================================
 with st.expander("📥 Sync / Update Jessica's Times", expanded=(st.session_state.jessica_pbs_df is None)):
-    st.markdown(
-        f"""
-        **Update times from Swim England:**
-        1. Open: **[Jessica's Swim England Rankings Page]({SWIMMER_URL})**
-        2. Select all and copy the table.
-        3. Paste below and tap **Parse & Save Times**.
-        """
+    instructions = (
+        "**Update times from Swim England:**\n"
+        f"1. Open: [Jessica's Swim England Rankings Page]({SWIMMER_URL})\n"
+        "2. Select all and copy the table.\n"
+        "3. Paste below and tap **Parse & Save Times**."
     )
+    st.markdown(instructions)
     pasted_data = st.text_area(
         "Paste page content or table rows here:",
         height=120,
@@ -437,12 +366,11 @@ with st.expander("🎯 Import Qualifying Standards (Google Sheets & Manual)", ex
     tab_bulk, tab_single = st.tabs(["📋 Paste from Google Sheets", "✏️ Single Event Entry"])
 
     with tab_bulk:
-        st.markdown(
-            """
-            **Copy columns straight from Google Sheets / Excel.**  
-            Format example with header row:
-            ```text
-            Event	Yorkshires 11	Yorkshires 12	NER 11	NER 12
-            50 Freestyle	33.50	31.80	32.00	30.50
-            100 Freestyle	1:13.00	1:08.50	1:10.00	1:06.00
-            
+        bulk_desc = (
+            "**Copy columns straight from Google Sheets / Excel.**\n\n"
+            "Format example with header row:\n"
+            "```text\n"
+            "Event\tYorkshires 11\tYorkshires 12\tNER 11\tNER 12\n"
+            "50 Freestyle\t33.50\t31.80\t32.00\t30.50\n"
+            "100 Freestyle\t1:13.00\t1:08.50\t1:10.00\t1:06.00\n"
+            "
