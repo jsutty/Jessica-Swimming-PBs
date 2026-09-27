@@ -304,7 +304,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. ENHANCED GOOGLE SHEETS FETCHER & ACCURATE MEET PARSER
+# 6. ENHANCED GOOGLE SHEETS FETCHER WITH EXACT HEADER ROW DETECTION
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -325,13 +325,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
     ]
-
-    if tab_identifier and not str(tab_identifier).isdigit():
-        encoded_tab = urllib.parse.quote(str(tab_identifier).strip())
-        candidate_urls.extend([
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&sheet={encoded_tab}",
-        ])
 
     csv_text = None
     last_err = ""
@@ -358,13 +351,17 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Scan rows for header line containing Stroke, Event, Distance, or 11/12
+    # Identify the real header row: look for the row containing both 11 and 12, or Event/Stroke
     header_idx = 0
-    for i, line in enumerate(raw_lines[:20]):
+    for i, line in enumerate(raw_lines[:15]):
         line_l = line.lower()
-        if any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "11", "12"]):
+        has_11 = bool(re.search(r"(?<!\d)11(?!\d)", line_l))
+        has_ev = any(k in line_l for k in ["event", "stroke", "50", "100", "free", "comp"])
+        if has_11 and has_ev:
             header_idx = i
             break
+        elif has_ev and i > 0 and header_idx == 0:
+            header_idx = i
 
     try:
         clean_csv = "\n".join(raw_lines[header_idx:])
@@ -375,7 +372,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
         return None, f"Error parsing CSV structure: {str(e)}"
 
 def resolve_meet_from_string(text, default_meet):
-    """Accurately maps text to one of the 4 championship categories."""
     if not text or pd.isna(text):
         return default_meet
     t = str(text).strip().lower()
@@ -386,7 +382,7 @@ def resolve_meet_from_string(text, default_meet):
         elif any(k in t for k in ["lc", "50", "summer"]):
             return "NER LC"
         else:
-            return "NER SC (Winter)"  # Default for NER if unspecified
+            return "NER SC (Winter)"
     elif any(k in t for k in ["york", "yks"]):
         if any(k in t for k in ["sc", "winter", "25"]):
             return "Yorkshire SC (Winter)"
@@ -401,13 +397,17 @@ def parse_standards_dataframe(df_raw, default_meet):
     if df_raw.empty or df_raw.shape[1] < 2:
         return 0, "Table has fewer than 2 columns."
 
-    # Inspect Column A to determine if it contains competition names
+    # If Column A contains merged competition titles, forward-fill them down
+    df = df_raw.copy()
+    if df.shape[1] >= 2:
+        df.iloc[:, 0] = df.iloc[:, 0].ffill()
+
     has_comp_col = False
     comp_col = None
     event_col = None
 
-    # 1. Header-based detection
-    for col in df_raw.columns:
+    # Detect competition column
+    for col in df.columns:
         col_c = str(col).strip().lower()
         if any(k in col_c for k in ["comp", "meet", "championship"]):
             has_comp_col = True
@@ -415,36 +415,50 @@ def parse_standards_dataframe(df_raw, default_meet):
         elif any(k in col_c for k in ["event", "stroke", "race"]):
             event_col = col
 
-    # 2. Content-based detection in Column 0
-    if not has_comp_col and df_raw.shape[1] >= 3:
-        sample_vals = [str(x).lower() for x in df_raw.iloc[:10, 0].dropna()]
+    # Check cell values in Column 0 if header wasn't labeled "Competition"
+    if not has_comp_col and df.shape[1] >= 3:
+        sample_vals = [str(x).lower() for x in df.iloc[:10, 0].dropna()]
         if any(any(k in s for k in ["ner", "york", "winter", "lc", "sc"]) for s in sample_vals):
             has_comp_col = True
-            comp_col = df_raw.columns[0]
-            event_col = df_raw.columns[1]
+            comp_col = df.columns[0]
+            event_col = df.columns[1]
 
     if not event_col:
-        event_col = df_raw.columns[1] if has_comp_col else df_raw.columns[0]
+        event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # Map Age 11 and Age 12 columns strictly
-    age_cols = []
-    for col in df_raw.columns:
+    # STRICT AGE COLUMN EXTRACTION (Prevents 17 & Over from matching Age 11)
+    col_age_11 = None
+    col_age_12 = None
+
+    for col in df.columns:
         if col in [comp_col, event_col]:
             continue
         c_str = str(col).strip().lower()
-        if re.search(r"\b11\b", c_str) or "age 11" in c_str or "11yr" in c_str:
-            age_cols.append((col, "11"))
-        elif re.search(r"\b12\b", c_str) or "age 12" in c_str or "12yr" in c_str:
-            age_cols.append((col, "12"))
+
+        # Exclude any column containing 17, 18, over, or +
+        if any(k in c_str for k in ["17", "18", "19", "over", "ov", "+"]):
+            continue
+
+        # Strictly match standalone 11
+        if re.search(r"(?<!\d)11(?!\d)", c_str):
+            col_age_11 = col
+        # Strictly match standalone 12
+        elif re.search(r"(?<!\d)12(?!\d)", c_str):
+            col_age_12 = col
+
+    age_cols = []
+    if col_age_11:
+        age_cols.append((col_age_11, "11"))
+    if col_age_12:
+        age_cols.append((col_age_12, "12"))
 
     if not age_cols:
-        return 0, f"No columns matched 'Age 11' or 'Age 12'. Columns detected: {list(df_raw.columns)}"
+        return 0, f"Could not isolate Age 11 or Age 12 columns. Detected headers: {list(df.columns)}"
 
     saved_count = 0
     current_meet = default_meet
 
-    for _, row in df_raw.iterrows():
-        # Check if Column A has an explicit meet name for this row
+    for _, row in df.iterrows():
         if has_comp_col and pd.notna(row[comp_col]) and str(row[comp_col]).strip():
             current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
@@ -490,7 +504,6 @@ def lookup_standard(meet, age, event_name):
                 if cand_dist == req_dist and cand_stroke == req_stroke:
                     return data["time"], data["sec"]
 
-    # Direct match fallback
     for (m, a, e), data in st.session_state.standards_db.items():
         if m == meet and a == age and (e == clean_ev or e == str(event_name).lower()):
             return data["time"], data["sec"]
@@ -555,7 +568,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
             worksheet_tab_name = st.text_input("Worksheet Tab Name / gid", value=DEFAULT_WORKSHEET_GID)
 
         sheet_meet = st.selectbox(
-            "Default Meet (used only if Column A is blank):",
+            "Default Meet (used only if Column A is completely blank):",
             ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
             key="gsheet_meet",
         )
@@ -627,7 +640,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
 
-    # Active Database Inspector
+    # Active Database Inspector & Clear Option
     with st.expander("📊 View Currently Saved Standards in Memory", expanded=False):
         if st.session_state.standards_db:
             db_list = [
