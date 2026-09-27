@@ -11,7 +11,7 @@ import streamlit as st
 # ==========================================
 SWIMMER_NAME = "Jessica Sutcliffe"
 SWIMMER_TIREF = "1749292"
-SWIMMER_URL = f"https://www.swimmingresults.org/individualbest/personal_best.php?back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}#"
+SWIMMER_URL = f"https://www.swimmingresults.org/individualbest/personal_best.php?back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
 
 st.set_page_config(
     page_title=f"{SWIMMER_NAME} - Yorkshires & NERs Tracker",
@@ -88,106 +88,130 @@ def seconds_to_time(seconds: float | None) -> str:
 
 
 # ==========================================
-# ANTI-403 RESILIENT FETCHER
+# ROBUST LIVE FETCHER & PARSER
 # ==========================================
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_live_pbs():
-    html_text = None
-    last_err = ""
+    html_text = ""
+    fetch_source = "None"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://www.swimmingresults.org/individualbest/",
+        "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    }
 
-    # Strategy 1: Direct browser TLS impersonation
+    # Attempt 1: Direct request with genuine browser session impersonation
     try:
-        resp = requests.get(
-            SWIMMER_URL,
-            impersonate="chrome120",
-            timeout=12,
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-GB,en;q=0.9",
-                "Referer": "https://www.swimmingresults.org/",
-            },
-        )
-        if resp.status_code == 200 and len(resp.text) > 1000:
+        s = requests.Session()
+        resp = s.get(SWIMMER_URL, headers=headers, impersonate="chrome120", timeout=12)
+        if resp.status_code == 200 and "table" in resp.text.lower():
             html_text = resp.text
-    except Exception as e:
-        last_err = str(e)
+            fetch_source = "Direct Connection"
+    except Exception:
+        pass
 
-    # Strategy 2: Proxy Gateway (bypasses AWS cloud IP 403 blocks)
+    # Attempt 2: If blocked or blank, query through raw CORS Gateway
     if not html_text:
         try:
             proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(SWIMMER_URL)}"
             resp = requests.get(proxy_url, impersonate="chrome120", timeout=15)
             if resp.status_code == 200 and len(resp.text) > 1000:
                 html_text = resp.text
-        except Exception as e:
-            last_err = str(e)
+                fetch_source = "Proxy (AllOrigins)"
+        except Exception:
+            pass
 
-    # Strategy 3: Fallback secondary mirror proxy
+    # Attempt 3: Alternative mirror
     if not html_text:
         try:
             proxy_url2 = f"https://corsproxy.io/?url={urllib.parse.quote(SWIMMER_URL)}"
             resp = requests.get(proxy_url2, impersonate="chrome120", timeout=15)
             if resp.status_code == 200 and len(resp.text) > 1000:
                 html_text = resp.text
-        except Exception as e:
-            last_err = str(e)
+                fetch_source = "Proxy (CorsProxy)"
+        except Exception:
+            pass
 
     if not html_text:
-        return None, f"Could not connect to Swim England (IP restricted): {last_err}"
+        return None, "Unable to establish connection to Swim England. Please verify connection and retry.", ""
 
     soup = BeautifulSoup(html_text, "html.parser")
     records = []
-    event_keywords = ["freestyle", "breaststroke", "backstroke", "butterfly", "individual medley", "im", "free", "breast", "back", "fly"]
+
+    # Recognize all common stroke keywords
+    event_pattern = re.compile(r"\b(freestyle|breaststroke|backstroke|butterfly|individual medley|im|free|breast|back|fly)\b", re.I)
+    time_regex = re.compile(r"(?:\d+:)?\d{1,2}\.\d{2}")
 
     for table in soup.find_all("table"):
-        table_context = ""
-        prev_node = table.find_previous(["h2", "h3", "h4", "caption", "p"])
+        table_html = str(table).upper()
+        
+        # Determine course context for this specific table
+        prev_heading = ""
+        prev_node = table.find_previous(["h2", "h3", "h4", "h5", "caption", "p"])
         if prev_node:
-            table_context = prev_node.get_text(strip=True).upper()
-        table_context += " " + table.get_text()[:200].upper()
-
-        is_lc_section = "LONG COURSE" in table_context or "50M" in table_context
-        course_label = "Long Course (50m)" if is_lc_section else "Short Course (25m)"
-        conv_label = "Converted to SC" if is_lc_section else "Converted to LC"
+            prev_heading = prev_node.get_text(strip=True).upper()
+            
+        full_context = prev_heading + " " + table_html[:300]
+        is_lc = ("LONG COURSE" in full_context) or ("50M" in full_context) or ("50 METRES" in full_context)
+        course_label = "Long Course (50m)" if is_lc else "Short Course (25m)"
+        conv_label = "Converted to SC" if is_lc else "Converted to LC"
 
         for row in table.find_all("tr"):
-            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+            cells = row.find_all(["td", "th"])
             if len(cells) < 2:
                 continue
 
-            first_cell = cells[0].strip()
-            if not any(k in first_cell.lower() for k in event_keywords) or not re.search(r"\d+", first_cell):
+            cell_texts = [c.get_text(" ", strip=True) for c in cells]
+            first_cell = cell_texts[0]
+
+            # Validate that row is a swim event (contains distance number and stroke)
+            if not (re.search(r"\d+", first_cell) and event_pattern.search(first_cell)):
                 continue
 
-            time_matches = []
-            for c_idx, cell_str in enumerate(cells[1:], start=1):
-                if re.match(r"^(?:\d+:)?\d{2}\.\d{2}$", cell_str):
-                    time_matches.append((c_idx, cell_str))
+            # Extract any valid time strings across all cells in this row
+            times_found = []
+            for ct in cell_texts[1:]:
+                match = time_regex.search(ct)
+                if match:
+                    times_found.append(match.group(0))
 
-            if not time_matches:
+            if not times_found:
                 continue
 
-            actual_time_raw = time_matches[0][1]
-            actual_sec = time_to_seconds(actual_time_raw)
+            actual_time = times_found[0]
+            actual_sec = time_to_seconds(actual_time)
 
-            conv_time_raw = time_matches[1][1] if len(time_matches) > 1 else "--"
-            conv_sec = time_to_seconds(conv_time_raw)
+            conv_time = times_found[1] if len(times_found) > 1 else "--"
+            conv_sec = time_to_seconds(conv_time)
 
             records.append({
                 "Course": course_label,
                 "Event": first_cell,
-                "PB_Time": actual_time_raw,
+                "PB_Time": actual_time,
                 "PB_Sec": actual_sec,
                 "Conv_Label": conv_label,
-                "Conv_Time": conv_time_raw,
+                "Conv_Time": conv_time,
                 "Conv_Sec": conv_sec,
             })
 
     if not records:
-        return None, "Connected, but no swimming times were found on the page."
+        # Provide diagnostic info if parsing yields 0 records
+        doc_title = soup.title.string if soup.title else "No title"
+        preview = soup.get_text()[:300].strip()
+        debug_info = f"Source: {fetch_source} | Title: {doc_title} | Content preview: {preview}"
+        return None, "Connected, but no swimming times were found on the page.", debug_info
 
     df = pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
-    return df, None
+    return df, None, fetch_source
 
 
 # ==========================================
@@ -226,11 +250,14 @@ with col_head2:
         fetch_live_pbs.clear()
         st.rerun()
 
-with st.spinner("Fetching latest rankings..."):
-    df_pbs, error = fetch_live_pbs()
+with st.spinner("Fetching latest rankings from Swim England..."):
+    df_pbs, error, diag_info = fetch_live_pbs()
 
 if error:
     st.error(error)
+    if diag_info:
+        with st.expander("Diagnostic Details"):
+            st.code(diag_info)
     st.stop()
 
 # Initialize session targets
@@ -291,7 +318,7 @@ df_pbs["N_Badge"] = [e[2] for e in n_eval]
 df_pbs["N_Pct"] = [e[3] for e in n_eval]
 
 # ==========================================
-# ROBUST UNIQUE EVENTS QUALIFIED LOGIC
+# UNIQUE EVENTS QUALIFIED LOGIC
 # ==========================================
 unique_yorkshires_qualified = 0
 unique_events_list = df_pbs["Event"].unique().tolist()
