@@ -1,4 +1,6 @@
 import io
+import json
+import os
 import re
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -14,6 +16,10 @@ SWIMMER_URL = (
     f"back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
 )
 CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of-Leeds-Swimming-Club-Logo.png"
+
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+PBS_FILE = os.path.join(DATA_DIR, "jessica_pbs.json")
+STANDARDS_FILE = os.path.join(DATA_DIR, "standards.json")
 
 st.set_page_config(
     page_title=f"{SWIMMER_NAME} - City of Leeds SC Tracker",
@@ -126,7 +132,55 @@ def gala_order_key(event_name):
     return (stroke, dist, name)
 
 # ==============================================================================
-# 5. DATA INGESTION & CLIPBOARD PARSERS
+# 5. PERMANENT FILE STORAGE HELPERS
+# ==============================================================================
+def load_saved_pbs():
+    if os.path.exists(PBS_FILE):
+        try:
+            with open(PBS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    return pd.DataFrame(data)
+        except Exception:
+            pass
+    return None
+
+def save_pbs_to_disk(df):
+    if df is not None and not df.empty:
+        try:
+            with open(PBS_FILE, "w", encoding="utf-8") as f:
+                json.dump(df.to_dict(orient="records"), f, indent=2)
+        except Exception as e:
+            st.error(f"Error saving PBs to file: {e}")
+
+def load_saved_standards():
+    if os.path.exists(STANDARDS_FILE):
+        try:
+            with open(STANDARDS_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+                out = {}
+                for k, v in raw.items():
+                    parts = k.split("|||")
+                    if len(parts) == 3:
+                        out[(parts[0], parts[1], parts[2])] = v
+                return out
+        except Exception:
+            pass
+    return {}
+
+def save_standards_to_disk(standards_dict):
+    try:
+        serializable = {
+            f"{k[0]}|||{k[1]}|||{k[2]}": v
+            for k, v in standards_dict.items()
+        }
+        with open(STANDARDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, indent=2)
+    except Exception as e:
+        st.error(f"Error saving standards to file: {e}")
+
+# ==============================================================================
+# 6. DATA INGESTION & CLIPBOARD PARSERS
 # ==============================================================================
 def parse_swim_england_table(raw_content):
     if not raw_content or not str(raw_content).strip():
@@ -248,7 +302,6 @@ def parse_google_sheets_tsv(tsv_data):
             if sec is None:
                 continue
 
-            # Determine championship meet
             if "ner" in col_l and ("winter" in col_l or "sc" in col_l):
                 meet = "NER SC (Winter)"
             elif "ner" in col_l:
@@ -266,14 +319,13 @@ def parse_google_sheets_tsv(tsv_data):
     return saved_count
 
 # ==============================================================================
-# 6. SESSION STATE INITIALIZATION
+# 7. INITIALIZE PERSISTENT STATE
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
-    st.session_state.swimmer_df = None
+    st.session_state.swimmer_df = load_saved_pbs()
 
-# Key: (Meet, Age, Event_Lower) -> {"time": "...", "sec": 12.34}
 if "standards_db" not in st.session_state:
-    st.session_state.standards_db = {}
+    st.session_state.standards_db = load_saved_standards()
 
 def lookup_standard(meet, age, event_name):
     key = (meet, age, str(event_name).lower())
@@ -288,7 +340,7 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 7. CLUB HEADER INTERFACE
+# 8. CLUB HEADER INTERFACE
 # ==============================================================================
 head_col1, head_col2 = st.columns([4, 1])
 with head_col1:
@@ -303,7 +355,7 @@ with head_col2:
 st.markdown("---")
 
 # ==============================================================================
-# 8. DATA INGESTION WORKFLOW EXPANDERS
+# 9. DATA INGESTION WORKFLOW EXPANDERS (WITH PERSISTENCE)
 # ==============================================================================
 with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(st.session_state.swimmer_df is None)):
     st.write("1. Open Jessica's Swim England profile using the link above.")
@@ -313,7 +365,8 @@ with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(
         parsed = parse_swim_england_table(raw_input)
         if parsed is not None and not parsed.empty:
             st.session_state.swimmer_df = parsed
-            st.success(f"Successfully captured {len(parsed)} swim times!")
+            save_pbs_to_disk(parsed)
+            st.success(f"Successfully captured and saved {len(parsed)} swim times permanently!")
             st.rerun()
         else:
             st.error("No valid times found. Please check that table rows were included.")
@@ -333,7 +386,8 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
         if st.button("📥 Import Standards", use_container_width=True):
             count = parse_google_sheets_tsv(tsv_paste)
             if count > 0:
-                st.success(f"Loaded and saved {count} standards!")
+                save_standards_to_disk(st.session_state.standards_db)
+                st.success(f"Loaded and permanently saved {count} standards!")
                 st.rerun()
             else:
                 st.error("Unable to parse. Ensure first column contains event names and headers include meet names.")
@@ -352,11 +406,35 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Manu
                 sec = time_to_seconds(s_val)
                 if sec:
                     st.session_state.standards_db[(s_meet, s_age, s_ev.lower())] = {"time": s_val.strip(), "sec": sec}
+                    save_standards_to_disk(st.session_state.standards_db)
                     st.success(f"Saved {s_meet} Age {s_age} target for {s_ev}!")
                     st.rerun()
 
+# Download backups for permanent inclusion in GitHub repo
+with st.expander("💾 Download / Backup Permanent JSON Files", expanded=False):
+    st.write("You can download these files and commit them to your GitHub repository so they persist even through complete cloud server rebuilds:")
+    c_dl1, c_dl2 = st.columns(2)
+    with c_dl1:
+        pbs_json_str = json.dumps(df.to_dict(orient="records"), indent=2)
+        st.download_button(
+            "📥 Download jessica_pbs.json",
+            data=pbs_json_str,
+            file_name="jessica_pbs.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with c_dl2:
+        std_serializable = {f"{k[0]}|||{k[1]}|||{k[2]}": v for k, v in st.session_state.standards_db.items()}
+        st.download_button(
+            "📥 Download standards.json",
+            data=json.dumps(std_serializable, indent=2),
+            file_name="standards.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
 # ==============================================================================
-# 9. DASHBOARD CONTROLS & FILTERING
+# 10. DASHBOARD CONTROLS & FILTERING
 # ==============================================================================
 f_col1, f_col2 = st.columns([1, 2])
 with f_col1:
@@ -368,10 +446,8 @@ with f_col2:
         horizontal=True,
     )
 
-# Unique Events in Olympic Gala Sequence
 unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
 
-# Helper function to compute Jessica's best eligible time for a meet type
 def get_best_eligible_times(ev):
     ev_rows = df[df["Event"] == ev]
     lc_sub = ev_rows[ev_rows["Course"] == "Long Course (50m)"]
@@ -380,14 +456,12 @@ def get_best_eligible_times(ev):
     lc_pb_sec = lc_sub.iloc[0]["PB_Sec"] if not lc_sub.empty else None
     sc_conv_lc_sec = sc_sub.iloc[0]["Conv_Sec"] if not sc_sub.empty else None
 
-    # For LC meets: fastest of LC PB and SC converted to LC
     lc_candidates = [s for s in [lc_pb_sec, sc_conv_lc_sec] if s is not None]
     best_lc_sec = min(lc_candidates) if lc_candidates else None
 
     sc_pb_sec = sc_sub.iloc[0]["PB_Sec"] if not sc_sub.empty else None
     lc_conv_sc_sec = lc_sub.iloc[0]["Conv_Sec"] if not lc_sub.empty else None
 
-    # For SC Winter meets: fastest of SC PB and LC converted to SC
     sc_candidates = [s for s in [sc_pb_sec, lc_conv_sc_sec] if s is not None]
     best_sc_sec = min(sc_candidates) if sc_candidates else None
 
@@ -411,7 +485,7 @@ m4.metric("Standards Configured", len(st.session_state.standards_db))
 st.markdown("---")
 
 # ==============================================================================
-# 10. UNIFIED EVENT CARDS (ONE PB BLOCK + ONE QUALIFYING MATRIX)
+# 11. UNIFIED EVENT CARDS (ONE PB BLOCK + ONE QUALIFYING MATRIX)
 # ==============================================================================
 for ev in unique_events:
     if selected_stroke != "All Events" and selected_stroke.lower() not in ev.lower():
@@ -423,7 +497,6 @@ for ev in unique_events:
 
     best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
 
-    # Lookup all 4 standards for both Age 11 and Age 12
     yks_lc_11_t, yks_lc_11_s = lookup_standard("Yorkshire LC", "11", ev)
     yks_lc_12_t, yks_lc_12_s = lookup_standard("Yorkshire LC", "12", ev)
     yks_sc_11_t, yks_sc_11_s = lookup_standard("Yorkshire SC (Winter)", "11", ev)
@@ -434,7 +507,6 @@ for ev in unique_events:
     ner_sc_11_t, ner_sc_11_s = lookup_standard("NER SC (Winter)", "11", ev)
     ner_sc_12_t, ner_sc_12_s = lookup_standard("NER SC (Winter)", "12", ev)
 
-    # Evaluate against fastest eligible time (LC evaluated against best_lc_sec, SC against best_sc_sec)
     eval_yks_lc_11 = evaluate_pace(best_lc_sec, yks_lc_11_s)
     eval_yks_lc_12 = evaluate_pace(best_lc_sec, yks_lc_12_s)
     eval_yks_sc_11 = evaluate_pace(best_sc_sec, yks_sc_11_s)
@@ -450,36 +522,27 @@ for ev in unique_events:
 
         card_left, card_right = st.columns([1, 1])
 
-        # ------------------------------------------------------------------
-        # LEFT COLUMN: ONE UNIFIED PB BLOCK (LC ON TOP, SC DIRECTLY UNDERNEATH)
-        # ------------------------------------------------------------------
         with card_left:
             st.markdown('<div class="times-box">', unsafe_allow_html=True)
 
-            # Long Course PB Row
             if not lc_sub.empty:
                 lc_r = lc_sub.iloc[0]
                 st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
             else:
                 st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
 
-            # Short Course PB Row Directly Underneath
             if not sc_sub.empty:
                 sc_r = sc_sub.iloc[0]
                 st.markdown(f"**🏊‍♀️ SC PB:** `{sc_r['PB_Time']}` &nbsp;|&nbsp; Conv LC: `{sc_r['Conv_Time']}`")
             else:
                 st.markdown("**🏊‍♀️ SC PB:** *No official SC PB recorded*")
 
-            # Reference time notification
             st.caption(
                 f"Reference Times &bull; Best LC Eligible: **`{seconds_to_time(best_lc_sec)}`** &bull; "
                 f"Best SC Eligible: **`{seconds_to_time(best_sc_sec)}`**"
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # --------------------------------------------------------------
-            # ONE SINGLE SET OF QUALIFYING TIMES WITH COLOR-CODED ATTAINMENT
-            # --------------------------------------------------------------
             st.markdown('<div class="matrix-box">', unsafe_allow_html=True)
             st.markdown(
                 f"**Yorkshire LC:**  \n"
@@ -507,13 +570,9 @@ for ev in unique_events:
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # ------------------------------------------------------------------
-        # RIGHT COLUMN: ACTIVE AGE BAND PROGRESS GAUGES
-        # ------------------------------------------------------------------
         with card_right:
             st.write(f"**Championship Progress (Active: Age {active_age})**")
 
-            # 1. Yorkshire LC Gauge
             act_yks_lc_eval = eval_yks_lc_11 if active_age == "11" else eval_yks_lc_12
             if act_yks_lc_eval[0] != "No Cut":
                 st.caption(f"Yorkshire LC: {act_yks_lc_eval[0]} ({act_yks_lc_eval[3]:.1f}%)")
@@ -521,7 +580,6 @@ for ev in unique_events:
             else:
                 st.caption("Yorkshire LC: No target set.")
 
-            # 2. Yorkshire SC (Winter) Gauge
             act_yks_sc_eval = eval_yks_sc_11 if active_age == "11" else eval_yks_sc_12
             if act_yks_sc_eval[0] != "No Cut":
                 st.caption(f"Yorkshire SC (Winter): {act_yks_sc_eval[0]} ({act_yks_sc_eval[3]:.1f}%)")
@@ -529,7 +587,6 @@ for ev in unique_events:
             else:
                 st.caption("Yorkshire SC (Winter): No target set.")
 
-            # 3. NER LC Gauge
             act_ner_lc_eval = eval_ner_lc_11 if active_age == "11" else eval_ner_lc_12
             if act_ner_lc_eval[0] != "No Cut":
                 st.caption(f"NER LC: {act_ner_lc_eval[0]} ({act_ner_lc_eval[3]:.1f}%)")
@@ -537,7 +594,6 @@ for ev in unique_events:
             else:
                 st.caption("NER LC: No target set.")
 
-            # 4. NER SC (Winter) Gauge
             act_ner_sc_eval = eval_ner_sc_11 if active_age == "11" else eval_ner_sc_12
             if act_ner_sc_eval[0] != "No Cut":
                 st.caption(f"NER SC (Winter): {act_ner_sc_eval[0]} ({act_ner_sc_eval[3]:.1f}%)")
@@ -548,7 +604,7 @@ for ev in unique_events:
         st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 11. TABULAR SUMMARY VIEW
+# 12. TABULAR SUMMARY VIEW
 # ==============================================================================
 with st.expander("📋 Tabular View of All Swims & Active Age Standards"):
     summary_rows = []
