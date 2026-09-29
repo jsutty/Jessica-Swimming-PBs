@@ -487,7 +487,7 @@ def fetch_and_parse_swim_england_direct():
         return None, f"Direct connection failed: {str(e)}"
 
 # ==============================================================================
-# 6. FUTURE-PROOF MULTI-TABLE FETCHER (AGES 10 TO 17+)
+# 6. RELIABLE MULTI-TABLE FETCHER (YORKSHIRE LC + 3 OTHER MEETS)
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -541,16 +541,15 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
+    # Look specifically for the table header line without clipping Yorkshire LC at line 0
     header_idx = 0
-    for i, line in enumerate(raw_lines[:20]):
+    for i, line in enumerate(raw_lines[:15]):
         line_l = line.lower()
         has_age = bool(re.search(r"(?<!\d)(?:1[0-7])(?!\d)", line_l))
         has_ev = any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "100", "distance"])
         if has_age and has_ev:
             header_idx = i
             break
-        elif has_ev and i > 0 and header_idx == 0:
-            header_idx = i
 
     try:
         clean_csv = "\n".join(raw_lines[header_idx:])
@@ -669,7 +668,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     return saved_count, f"Mapped: " + " | ".join(mapped_labels)
 
 # ==============================================================================
-# 7. AUTOMATIC SYNC & INITIALIZATION
+# 7. UNIFIED AUTO-SYNC & INITIALIZATION
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = load_saved_pbs()
@@ -677,31 +676,28 @@ if "swimmer_df" not in st.session_state:
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = load_saved_standards()
 
-# In-memory storage for head-to-head competitor data
 if "competitor_name" not in st.session_state:
     st.session_state.competitor_name = "Competitor"
 
 if "competitor_df" not in st.session_state:
     st.session_state.competitor_df = None
 
-if "auto_synced" not in st.session_state:
-    df_auto, err_auto = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
-    if not err_auto and df_auto is not None and not df_auto.empty:
-        count_auto, _ = parse_standards_dataframe(df_auto, "NER SC (Winter)")
-        if count_auto > 0:
-            save_standards_to_disk(st.session_state.standards_db)
-    st.session_state.auto_synced = True
-
 def perform_manual_sync():
     df_s, err_s = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
     if err_s:
         return False, f"Failed: {err_s}"
+    # Complete reset to prevent cross-table corruption
     st.session_state.standards_db = {}
-    count, msg = parse_standards_dataframe(df_s, "NER SC (Winter)")
+    count, msg = parse_standards_dataframe(df_s, "Yorkshire LC")
     if count > 0:
         save_standards_to_disk(st.session_state.standards_db)
-        return True, f"Synchronized {count} standards! ({msg})"
+        return True, f"Synchronized {count} standards across all 4 meets! ({msg})"
     return False, msg
+
+# Run clean sync automatically on initial startup
+if "auto_synced" not in st.session_state:
+    perform_manual_sync()
+    st.session_state.auto_synced = True
 
 def lookup_standard(meet, age, event_name):
     clean_ev = normalize_event_name(event_name)
@@ -815,7 +811,7 @@ with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False
         with c_tab:
             worksheet_tab_name = st.text_input("Worksheet Tab Name / gid", value=DEFAULT_WORKSHEET_GID)
 
-        sheet_meet = st.selectbox("Default Meet (if unlisted):", ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"], key="gsheet_meet")
+        sheet_meet = st.selectbox("Default Meet (if unlisted):", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"], key="gsheet_meet")
 
         c_sync1, c_sync2 = st.columns([1, 1])
         with c_sync1:
@@ -846,7 +842,7 @@ with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False
 
     with tab_paste:
         tsv_paste = st.text_area("Paste cells here (tab or comma separated):", height=110)
-        paste_meet = st.selectbox("Default Meet for pasted block:", ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"], key="paste_meet")
+        paste_meet = st.selectbox("Default Meet for pasted block:", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"], key="paste_meet")
         if st.button("📥 Import Pasted Standards", use_container_width=True):
             sep = "\t" if "\t" in tsv_paste else ","
             try:
@@ -915,7 +911,7 @@ def get_best_eligible_times(ev):
     return best_lc_sec, best_sc_sec
 
 # ==============================================================================
-# 11. APPLICATION NAVIGATION TABS (WITH HEAD-TO-HEAD COMPARISON TAB)
+# 11. APPLICATION NAVIGATION TABS
 # ==============================================================================
 main_tab_events, main_tab_summary, main_tab_h2h = st.tabs([
     "📊 Event-by-Event Tracker",
@@ -932,7 +928,7 @@ with main_tab_events:
         active_age = st.selectbox(
             "🎯 **Active Target Age Category:**",
             ALL_AGE_BANDS,
-            index=1,  # Default to Age 11
+            index=1,
             key="age_events_dropdown",
             help="Select any competition age band between 10 and 17"
         )
@@ -1007,7 +1003,7 @@ with main_tab_events:
                     lc_r = lc_sub.iloc[0]
                     st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
                 else:
-                    st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
+                    st.markdown("**🏊‍♂️️ LC PB:** *No official LC PB recorded*")
 
                 if not sc_sub.empty:
                     sc_r = sc_sub.iloc[0]
@@ -1072,7 +1068,7 @@ with main_tab_summary:
         summary_age = st.selectbox(
             "🎯 **Target Age Category:**",
             ALL_AGE_BANDS,
-            index=1,  # Default to Age 11
+            index=1,
             key="age_summary_dropdown",
             help="Select any competition age band between 10 and 17"
         )
@@ -1182,7 +1178,7 @@ with main_tab_summary:
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 3: SWIMMER HEAD-TO-HEAD COMPARISON
+# TAB 3: SWIMMER HEAD-TO-HEAD COMPARISON (WITH HIGHLIGHTED FASTEST TIME)
 # ------------------------------------------------------------------------------
 with main_tab_h2h:
     st.markdown("### ⚔️ Compare Personal Bests Side-by-Side")
@@ -1226,7 +1222,6 @@ with main_tab_h2h:
         with filter_col2:
             st.caption(f"Comparing **Jessica Sutcliffe** vs. **{comp_name}**.")
 
-        # Build comparison records
         courses_to_include = (
             ["Short Course (25m)", "Long Course (50m)"]
             if course_filter == "All Courses"
@@ -1238,7 +1233,6 @@ with main_tab_h2h:
         comp_faster = 0
         tied = 0
 
-        # Collect union of all events from both swimmers
         all_unique_evs = sorted(
             list(set(df["Event"].unique().tolist() + comp_df["Event"].unique().tolist())),
             key=gala_order_key
@@ -1249,7 +1243,6 @@ with main_tab_h2h:
                 j_sub = df[(df["Event"] == ev) & (df["Course"] == crs)]
                 c_sub = comp_df[(comp_df["Event"] == ev) & (comp_df["Course"] == crs)]
 
-                # Only include if at least one swimmer has a PB in this course
                 if j_sub.empty and c_sub.empty:
                     continue
 
@@ -1259,21 +1252,27 @@ with main_tab_h2h:
                 c_sec = c_sub.iloc[0]["PB_Sec"] if not c_sub.empty else None
                 c_time_str = c_sub.iloc[0]["PB_Time"] if not c_sub.empty else "--"
 
+                fastest_swimmer = None
                 if j_sec is not None and c_sec is not None:
                     diff = j_sec - c_sec
                     if abs(diff) < 0.001:
                         lead = "Tied 🤝"
                         tied += 1
+                        fastest_swimmer = "Tied"
                     elif diff < 0:
                         lead = f"Jessica by -{abs(diff):.2f}s 🎯"
                         jessica_faster += 1
+                        fastest_swimmer = "Jessica"
                     else:
                         lead = f"{comp_name} by -{diff:.2f}s"
                         comp_faster += 1
+                        fastest_swimmer = "Competitor"
                 elif j_sec is not None:
                     lead = "Jessica only"
+                    fastest_swimmer = "Jessica"
                 else:
                     lead = f"{comp_name} only"
+                    fastest_swimmer = "Competitor"
 
                 crs_label = "SC (25m)" if crs == "Short Course (25m)" else "LC (50m)"
                 comparison_rows.append({
@@ -1282,10 +1281,10 @@ with main_tab_h2h:
                     f"Jessica PB": j_time_str,
                     f"{comp_name} PB": c_time_str,
                     "Advantage": lead,
+                    "_fastest": fastest_swimmer,
                     "Sort": gala_order_key(ev),
                 })
 
-        # KPI Summary for Head to Head
         h1, h2, h3, h4 = st.columns(4)
         h1.metric("Total Events Compared", len(comparison_rows))
         h2.metric("Jessica Ahead 🏊‍♀️", jessica_faster)
@@ -1297,10 +1296,42 @@ with main_tab_h2h:
         if comparison_rows:
             comp_display_df = pd.DataFrame(comparison_rows)
             comp_display_df = comp_display_df.sort_values(by="Sort").drop(columns=["Sort"])
-            if course_filter != "All Courses":
-                comp_display_df = comp_display_df.drop(columns=["Course"])
 
-            st.dataframe(comp_display_df, use_container_width=True, hide_index=True)
+            j_col = "Jessica PB"
+            c_col = f"{comp_name} PB"
+
+            # Apply bold dark-blue highlighting to fastest swimmer's time cell
+            def highlight_fastest_time(row):
+                winner = row["_fastest"]
+                style_j = ""
+                style_c = ""
+                highlight_css = "font-weight: 800; color: #002B49; background-color: #E8F0FE;"
+
+                if winner == "Jessica" and row[j_col] != "--":
+                    style_j = highlight_css
+                elif winner == "Competitor" and row[c_col] != "--":
+                    style_c = highlight_css
+                elif winner == "Tied":
+                    style_j = highlight_css
+                    style_c = highlight_css
+
+                res = ["" for _ in row.index]
+                if j_col in row.index:
+                    res[row.index.get_loc(j_col)] = style_j
+                if c_col in row.index:
+                    res[row.index.get_loc(c_col)] = style_c
+                return res
+
+            styled_table = (
+                comp_display_df.style
+                .apply(highlight_fastest_time, axis=1)
+                .hide(subset=["_fastest"], axis="columns")
+            )
+
+            if course_filter != "All Courses" and "Course" in comp_display_df.columns:
+                styled_table = styled_table.hide(subset=["Course"], axis="columns")
+
+            st.dataframe(styled_table, use_container_width=True, hide_index=True)
         else:
             st.info("No common events found for the selected course filter.")
 
