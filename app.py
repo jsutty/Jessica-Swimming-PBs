@@ -34,7 +34,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STYLING (CITY OF LEEDS SC NAVY & GOLD + LOGO BUTTON OVERLAY)
+# 2. STYLING (CITY OF LEEDS SC NAVY & GOLD)
 # ==============================================================================
 st.markdown(
     """
@@ -83,35 +83,24 @@ st.markdown(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
     }
 
-    /* Clickable Interactive Logo Button Styling */
-    div.logo-container {
-        position: relative;
-        display: inline-block;
-        cursor: pointer;
+    /* Branded Yellow & Blue Sync QTs Button */
+    div.sync-btn-container button {
+        background-color: #FFC72C !important;
+        color: #002B49 !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+        border: 2px solid #002B49 !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
+        box-shadow: 0 2px 5px rgba(0, 43, 73, 0.15) !important;
+        transition: all 0.15s ease-in-out !important;
     }
-    div.logo-container img {
-        transition: transform 0.15s ease-in-out, filter 0.15s ease-in-out;
-    }
-    div.logo-container:hover img {
-        transform: scale(1.04);
-        filter: drop-shadow(0 4px 6px rgba(0, 43, 73, 0.15));
-    }
-    /* Invisible Button overlay covering the logo */
-    div[data-testid="column"]:has(.logo-container) div[data-testid="stButton"] button {
-        background-color: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 10;
-        cursor: pointer;
-    }
-    div[data-testid="column"]:has(.logo-container) div[data-testid="stButton"] button:hover {
-        background-color: transparent !important;
-        border: none !important;
+    div.sync-btn-container button:hover {
+        background-color: #ffd866 !important;
+        color: #001f35 !important;
+        border-color: #001f35 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(0, 43, 73, 0.22) !important;
     }
 
     div[role="radiogroup"] > label[data-checked="true"] {
@@ -633,16 +622,16 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 8. CITY OF LEEDS SC HEADER WITH INTERACTIVE CLICKABLE LOGO SYNC
+# 8. CITY OF LEEDS SC HEADER WITH YELLOW 'SYNC QTS' BUTTON
 # ==============================================================================
-banner_left, banner_right = st.columns([6, 2])
+banner_left, banner_mid, banner_right = st.columns([5, 2, 2])
 
 with banner_left:
     st.markdown(
         f"""
         <div style="padding-top: 4px;">
             <h1 style="color: #002B49; margin-bottom: 2px; font-weight: 800; font-size: 2.1rem;">
-                🏊‍♀️ {SWIMMER_NAME}
+                🏊‍♀️️ {SWIMMER_NAME}
             </h1>
             <p style="color: #475569; font-size: 1.02rem; margin: 0;">
                 <strong style="color: #005A9C;">City of Leeds Swimming Club</strong> &bull; 
@@ -654,18 +643,10 @@ with banner_left:
         unsafe_allow_html=True,
     )
 
-with banner_right:
-    # Interactive Logo: Image rendered with an invisible click overlay
-    st.markdown(
-        f"""
-        <div class="logo-container" title="Tap logo to sync qualifying times from Google Sheets">
-            <img src="{CLUB_LOGO_URL}" width="175" style="display: block;" />
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # Invisible button aligned directly over the logo
-    if st.button("logo_sync_btn", key="logo_sync_action", help="Tap logo to sync qualifying times from Google Sheets"):
+with banner_mid:
+    st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="sync-btn-container">', unsafe_allow_html=True)
+    if st.button("⚡ Sync QTs", use_container_width=True, help="Fetch latest qualifying times directly from Google Sheets"):
         with st.spinner("Syncing qualifying times..."):
             ok, res_msg = perform_manual_sync()
             if ok:
@@ -673,6 +654,10 @@ with banner_right:
                 st.rerun()
             else:
                 st.error(res_msg)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with banner_right:
+    st.image(CLUB_LOGO_URL, width=170)
 
 st.markdown("<hr style='border: none; border-top: 3px solid #FFC72C; margin: 10px 0 20px 0;'>", unsafe_allow_html=True)
 
@@ -706,7 +691,7 @@ with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False
     tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
-        st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the City of Leeds SC logo.")
+        st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the 'Sync QTs' button above.")
         c_url, c_tab = st.columns([2, 1])
         with c_url:
             gsheet_raw_url = st.text_input("Google Sheet Link", value=f"{DEFAULT_GSHEET_URL}#gid={DEFAULT_WORKSHEET_GID}")
