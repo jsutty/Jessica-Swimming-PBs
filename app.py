@@ -17,7 +17,7 @@ SWIMMER_URL = (
     "https://www.swimmingresults.org/individualbest/personal_best.php?"
     f"back=individualbestname&mode=A&name=Sutcliffe&tiref={SWIMMER_TIREF}"
 )
-CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2021/04/City-of-Leeds-Swimming-Club-Logo.png"
+CLUB_LOGO_URL = "https://www.swimleeds.org.uk/wp-content/uploads/2026/02/colswc-logo-tag.svg"
 
 DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdMKp-w3yIT_qZxoHA6zFaxLdjuk/edit?usp=drivesdk"
 DEFAULT_WORKSHEET_TAB = "EXPORT"
@@ -34,44 +34,97 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STYLING (CITY OF LEEDS PALETTE & STATUS COLORS)
+# 2. STYLING (AUTHENTIC CITY OF LEEDS SC NAVY & GOLD)
 # ==============================================================================
 st.markdown(
     """
     <style>
-    .main { background-color: #f6f8fb; }
+    .main { background-color: #f1f5f9; }
     .stApp header { background-color: transparent; }
-    .txt-green { color: #0f5132; font-weight: 700; }
-    .txt-amber { color: #d97706; font-weight: 700; }
-    .txt-red { color: #dc2626; font-weight: 700; }
-    .txt-gray { color: #6b7280; }
+    
+    /* Leeds SC Color Scheme */
+    :root {
+        --leeds-navy: #002B49;
+        --leeds-blue: #005A9C;
+        --leeds-gold: #FFC72C;
+        --leeds-light-gold: #FFF5D6;
+    }
+
+    .txt-green { color: #047857; font-weight: 700; }
+    .txt-amber { color: #b45309; font-weight: 700; }
+    .txt-red { color: #b91c1c; font-weight: 700; }
+    .txt-gray { color: #64748b; }
+
+    /* Top Club Header Banner */
+    .club-banner {
+        background: linear-gradient(135deg, #002B49 0%, #005A9C 100%);
+        border-radius: 12px;
+        padding: 18px 24px;
+        color: #ffffff;
+        margin-bottom: 20px;
+        border-bottom: 5px solid #FFC72C;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .club-banner h1 {
+        color: #ffffff;
+        font-size: 1.85rem;
+        font-weight: 800;
+        margin: 0;
+        padding: 0;
+    }
+    .club-banner p {
+        color: #e2e8f0;
+        margin: 4px 0 0 0;
+        font-size: 0.95rem;
+    }
+    .club-banner a {
+        color: #FFC72C;
+        text-decoration: underline;
+        font-weight: 600;
+    }
+
     div[data-testid="stMetric"] {
         background-color: #ffffff;
-        border: 1px solid #dce3ed;
+        border: 1px solid #cbd5e1;
+        border-top: 4px solid #002B49;
         border-bottom: 4px solid #FFC72C;
         border-radius: 8px;
         padding: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
+    
     .times-box {
         background-color: #ffffff;
-        border: 1px solid #e2e8f0;
+        border-left: 5px solid #005A9C;
+        border-top: 1px solid #e2e8f0;
+        border-right: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 14px 18px;
         margin-bottom: 12px;
     }
     .matrix-box {
         background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 12px 16px;
+        padding: 14px 16px;
     }
     .summary-card {
         background-color: #ffffff;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #cbd5e1;
+        border-top: 4px solid #002B49;
         border-radius: 10px;
         padding: 16px 20px;
         margin-bottom: 20px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    }
+
+    /* Radio button active accents */
+    div[role="radiogroup"] > label[data-checked="true"] {
+        color: #002B49 !important;
+        font-weight: 700;
     }
     </style>
     """,
@@ -351,7 +404,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. BULLETPROOF MULTI-TABLE GOOGLE SHEETS FETCHER
+# 6. BULLETPROOF MULTI-TABLE GOOGLE SHEETS FETCHER (AGE 10, 11, 12)
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -405,13 +458,13 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
+    # Seek real header row containing age categories and event labels
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
-        has_standalone_11 = bool(re.search(r"(?<!\d)11(?!\d)", line_l))
-        has_not_17_only = not (bool(re.search(r"(?<!\d)17(?!\d)", line_l)) and not has_standalone_11)
+        has_age = bool(re.search(r"(?<!\d)(?:10|11|12)(?!\d)", line_l))
         has_ev = any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "100", "distance"])
-        if has_standalone_11 and has_not_17_only and has_ev:
+        if has_age and has_ev:
             header_idx = i
             break
         elif has_ev and i > 0 and header_idx == 0:
@@ -477,6 +530,8 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
+    # STRICT AGE 10, 11 & 12 COLUMN ISOLATION (Excludes 17+, Over, 17/OV)
+    col_age_10 = None
     col_age_11 = None
     col_age_12 = None
 
@@ -488,7 +543,10 @@ def parse_standards_dataframe(df_raw, default_meet):
         if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]):
             continue
 
-        if re.search(r"(?<!\d)11(?!\d)", c_str):
+        if re.search(r"(?<!\d)10(?!\d)", c_str):
+            if col_age_10 is None:
+                col_age_10 = col
+        elif re.search(r"(?<!\d)11(?!\d)", c_str):
             if col_age_11 is None:
                 col_age_11 = col
         elif re.search(r"(?<!\d)12(?!\d)", c_str):
@@ -496,13 +554,15 @@ def parse_standards_dataframe(df_raw, default_meet):
                 col_age_12 = col
 
     age_cols = []
+    if col_age_10:
+        age_cols.append((col_age_10, "10"))
     if col_age_11:
         age_cols.append((col_age_11, "11"))
     if col_age_12:
         age_cols.append((col_age_12, "12"))
 
     if not age_cols:
-        return 0, f"Could not isolate Age 11 or Age 12. Detected columns: {list(df.columns)}"
+        return 0, f"Could not isolate Age 10, 11, or 12. Detected columns: {list(df.columns)}"
 
     saved_count = 0
     current_meet = default_meet
@@ -512,8 +572,6 @@ def parse_standards_dataframe(df_raw, default_meet):
             current_meet = resolve_meet_from_string(row[comp_col], default_meet)
 
         raw_ev = str(row[event_col]).strip()
-        
-        # Only skip pure header cells, NEVER skip breaststroke or backstroke
         raw_ev_lower = raw_ev.lower()
         if not raw_ev or raw_ev_lower in ["event", "stroke", "qualifying", "consideration", "events"]:
             continue
@@ -531,16 +589,37 @@ def parse_standards_dataframe(df_raw, default_meet):
             st.session_state.standards_db[key] = {"time": disp_str, "sec": sec}
             saved_count += 1
 
-    return saved_count, f"Successfully mapped columns -> Age 11: '{col_age_11}' | Age 12: '{col_age_12}'"
+    mapped_labels = [f"Age {a}: '{c}'" for c, a in age_cols]
+    return saved_count, f"Mapped columns -> " + " | ".join(mapped_labels)
 
 # ==============================================================================
-# 7. SESSION STATE INITIALIZATION & MULTI-TIER LOOKUP
+# 7. AUTOMATIC STANDARDS SYNC & SESSION STATE INITIALIZATION
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = load_saved_pbs()
 
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = load_saved_standards()
+
+# Automatic background synchronization from Google Sheets on app startup
+if "auto_synced" not in st.session_state:
+    df_auto, err_auto = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
+    if not err_auto and df_auto is not None and not df_auto.empty:
+        count_auto, _ = parse_standards_dataframe(df_auto, "NER SC (Winter)")
+        if count_auto > 0:
+            save_standards_to_disk(st.session_state.standards_db)
+    st.session_state.auto_synced = True
+
+def perform_manual_sync():
+    df_s, err_s = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
+    if err_s:
+        return False, f"Failed: {err_s}"
+    st.session_state.standards_db = {}
+    count, msg = parse_standards_dataframe(df_s, "NER SC (Winter)")
+    if count > 0:
+        save_standards_to_disk(st.session_state.standards_db)
+        return True, f"Synchronized {count} standards! ({msg})"
+    return False, msg
 
 def lookup_standard(meet, age, event_name):
     clean_ev = normalize_event_name(event_name)
@@ -563,19 +642,42 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 8. CLUB HEADER
+# 8. CITY OF LEEDS SC BRANDED HEADER WITH INSTANT SYNC
 # ==============================================================================
-head_col1, head_col2 = st.columns([4, 1])
-with head_col1:
-    st.title(f"🏊‍♀️ {SWIMMER_NAME}")
-    st.markdown(
-        f"**City of Leeds Swimming Club** &bull; Swim England: `{SWIMMER_TIREF}` &bull; "
-        f"[Official Rankings Profile]({SWIMMER_URL})"
-    )
-with head_col2:
-    st.image(CLUB_LOGO_URL, width=120)
+banner_col1, banner_col2, banner_col3 = st.columns([5, 2, 2])
 
-st.markdown("---")
+with banner_col1:
+    st.markdown(
+        f"""
+        <div style="padding-top: 4px;">
+            <h1 style="color: #002B49; margin-bottom: 2px; font-weight: 800; font-size: 2.1rem;">
+                🏊‍♀️ {SWIMMER_NAME}
+            </h1>
+            <p style="color: #475569; font-size: 1.05rem; margin: 0;">
+                <strong style="color: #005A9C;">City of Leeds Swimming Club</strong> &bull; 
+                Swim England: <code style="background-color: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{SWIMMER_TIREF}</code> &bull; 
+                <a href="{SWIMMER_URL}" target="_blank" style="color: #005A9C; font-weight: 600;">Rankings Profile ↗</a>
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with banner_col2:
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    if st.button("🔄 Sync Google Sheets Now", use_container_width=True, help="Refetches live cuts from EXPORT tab"):
+        ok, res_msg = perform_manual_sync()
+        if ok:
+            st.success(res_msg)
+            st.rerun()
+        else:
+            st.error(res_msg)
+
+with banner_col3:
+    # Direct Official Club Logo
+    st.image(CLUB_LOGO_URL, width=170)
+
+st.markdown("<hr style='border: none; border-top: 3px solid #FFC72C; margin: 10px 0 20px 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
 # 9. INGESTION WORKFLOW
@@ -601,33 +703,23 @@ if st.session_state.swimmer_df is None:
 df = st.session_state.swimmer_df
 
 # ==============================================================================
-# 10. STANDARDS IMPORT & LIVE DIAGNOSTICS
+# 10. ADVANCED STANDARDS CONFIG & LIVE PREVIEW
 # ==============================================================================
-with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diagnostics)", expanded=(len(st.session_state.standards_db) == 0)):
-    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
+with st.expander("⚙️ Advanced Standards Configuration & Diagnostic Tools", expanded=False):
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Custom Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
-        st.markdown(
-            f"Sync directly from your shared Google Sheet tab (`{DEFAULT_WORKSHEET_TAB}` &bull; `gid={DEFAULT_WORKSHEET_GID}`):"
-        )
         c_url, c_tab = st.columns([2, 1])
         with c_url:
-            gsheet_raw_url = st.text_input(
-                "Google Sheet Link",
-                value=f"{DEFAULT_GSHEET_URL}#gid={DEFAULT_WORKSHEET_GID}",
-            )
+            gsheet_raw_url = st.text_input("Google Sheet Link", value=f"{DEFAULT_GSHEET_URL}#gid={DEFAULT_WORKSHEET_GID}")
         with c_tab:
             worksheet_tab_name = st.text_input("Worksheet Tab Name / gid", value=DEFAULT_WORKSHEET_GID)
 
-        sheet_meet = st.selectbox(
-            "Default Meet (used only if Column A is completely blank):",
-            ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
-            key="gsheet_meet",
-        )
+        sheet_meet = st.selectbox("Default Meet (if unlisted):", ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"], key="gsheet_meet")
 
         c_sync1, c_sync2 = st.columns([1, 1])
         with c_sync1:
-            sync_btn = st.button("🔄 Sync Directly from Google Sheet", use_container_width=True)
+            sync_btn = st.button("🔄 Force Refresh Standards", use_container_width=True)
         with c_sync2:
             debug_btn = st.button("🔍 Check Connection & Preview Data", use_container_width=True)
 
@@ -653,13 +745,8 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                             st.error(msg)
 
     with tab_paste:
-        st.write("Paste cells copied directly from Google Sheets / Excel:")
-        paste_meet = st.selectbox(
-            "Default Meet for pasted block:",
-            ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"],
-            key="paste_meet",
-        )
         tsv_paste = st.text_area("Paste cells here (tab or comma separated):", height=110)
+        paste_meet = st.selectbox("Default Meet for pasted block:", ["NER SC (Winter)", "NER LC", "Yorkshire SC (Winter)", "Yorkshire LC"], key="paste_meet")
         if st.button("📥 Import Pasted Standards", use_container_width=True):
             sep = "\t" if "\t" in tsv_paste else ","
             try:
@@ -670,7 +757,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                     st.success(f"Loaded and saved {count} standards!")
                     st.rerun()
                 else:
-                    st.error(parse_err or "Verify that headers include 'Age 11' or 'Age 12'.")
+                    st.error(parse_err)
             except Exception as e:
                 st.error(f"Error parsing table: {e}")
 
@@ -681,9 +768,9 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
             s_ev = st.selectbox("Event", all_evs)
         with col_s2:
             s_meet = st.selectbox("Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
-            s_age = st.selectbox("Age Band", ["11", "12"])
+            s_age = st.selectbox("Age Band", ["10", "11", "12"])
         with col_s3:
-            s_val = st.text_input("Target Cut (e.g. 12.3, 33.80, 00:00:33.8, or 1:08.20)")
+            s_val = st.text_input("Target Cut (e.g. 12.3, 33.80, or 1:08.20)")
             if st.button("💾 Save Standard", use_container_width=True):
                 sec = parse_time_value(s_val)
                 if sec:
@@ -706,7 +793,7 @@ with st.expander("🎯 Step 2: Import Qualifying Standards (Google Sheets & Diag
                 save_standards_to_disk({})
                 st.rerun()
         else:
-            st.info("No standards currently saved in app memory. Tap 'Sync Directly from Google Sheet' above.")
+            st.info("No standards currently saved in app memory.")
 
 unique_events = sorted(df["Event"].unique().tolist(), key=gala_order_key)
 
@@ -728,7 +815,7 @@ def get_best_eligible_times(ev):
     return best_lc_sec, best_sc_sec
 
 # ==============================================================================
-# 11. TOP-LEVEL NAVIGATION TABS
+# 11. APPLICATION NAVIGATION TABS (WITH AGE 10, 11, 12 FILTERS)
 # ==============================================================================
 main_tab_events, main_tab_summary = st.tabs([
     "📊 Event-by-Event Tracker",
@@ -741,7 +828,7 @@ main_tab_events, main_tab_summary = st.tabs([
 with main_tab_events:
     f_col1, f_col2 = st.columns([1, 2])
     with f_col1:
-        active_age = st.radio("🎯 **Active Target Age:**", ["11", "12"], horizontal=True, index=0, key="age_events_tab")
+        active_age = st.radio("🎯 **Active Target Age:**", ["10", "11", "12"], horizontal=True, index=1, key="age_events_tab")
     with f_col2:
         selected_stroke = st.radio(
             "🏊 **Filter by Stroke:**",
@@ -775,25 +862,16 @@ with main_tab_events:
 
         best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
 
-        yks_lc_11_t, yks_lc_11_s = lookup_standard("Yorkshire LC", "11", ev)
-        yks_lc_12_t, yks_lc_12_s = lookup_standard("Yorkshire LC", "12", ev)
-        yks_sc_11_t, yks_sc_11_s = lookup_standard("Yorkshire SC (Winter)", "11", ev)
-        yks_sc_12_t, yks_sc_12_s = lookup_standard("Yorkshire SC (Winter)", "12", ev)
+        # Standards for Active Age
+        yks_lc_t, yks_lc_s = lookup_standard("Yorkshire LC", active_age, ev)
+        yks_sc_t, yks_sc_s = lookup_standard("Yorkshire SC (Winter)", active_age, ev)
+        ner_lc_t, ner_lc_s = lookup_standard("NER LC", active_age, ev)
+        ner_sc_t, ner_sc_s = lookup_standard("NER SC (Winter)", active_age, ev)
 
-        ner_lc_11_t, ner_lc_11_s = lookup_standard("NER LC", "11", ev)
-        ner_lc_12_t, ner_lc_12_s = lookup_standard("NER LC", "12", ev)
-        ner_sc_11_t, ner_sc_11_s = lookup_standard("NER SC (Winter)", "11", ev)
-        ner_sc_12_t, ner_sc_12_s = lookup_standard("NER SC (Winter)", "12", ev)
-
-        eval_yks_lc_11 = evaluate_pace(best_lc_sec, yks_lc_11_s)
-        eval_yks_lc_12 = evaluate_pace(best_lc_sec, yks_lc_12_s)
-        eval_yks_sc_11 = evaluate_pace(best_sc_sec, yks_sc_11_s)
-        eval_yks_sc_12 = evaluate_pace(best_sc_sec, yks_sc_12_s)
-
-        eval_ner_lc_11 = evaluate_pace(best_lc_sec, ner_lc_11_s)
-        eval_ner_lc_12 = evaluate_pace(best_lc_sec, ner_lc_12_s)
-        eval_ner_sc_11 = evaluate_pace(best_sc_sec, ner_sc_11_s)
-        eval_ner_sc_12 = evaluate_pace(best_sc_sec, ner_sc_12_s)
+        eval_yks_lc = evaluate_pace(best_lc_sec, yks_lc_s)
+        eval_yks_sc = evaluate_pace(best_sc_sec, yks_sc_s)
+        eval_ner_lc = evaluate_pace(best_lc_sec, ner_lc_s)
+        eval_ner_sc = evaluate_pace(best_sc_sec, ner_sc_s)
 
         with st.container():
             st.subheader(f"🏊 {ev}")
@@ -822,71 +900,63 @@ with main_tab_events:
 
                 st.markdown('<div class="matrix-box">', unsafe_allow_html=True)
                 st.markdown(
-                    f"**Yorkshire LC:**  \n"
-                    f"Age 11: `{yks_lc_11_t or '--'}` &rarr; <span class='{eval_yks_lc_11[2]}'>{eval_yks_lc_11[1]} ({eval_yks_lc_11[0]})</span> &nbsp;|&nbsp; "
-                    f"Age 12: `{yks_lc_12_t or '--'}` &rarr; <span class='{eval_yks_lc_12[2]}'>{eval_yks_lc_12[1]} ({eval_yks_lc_12[0]})</span>",
+                    f"**Yorkshire LC (Age {active_age}):** `{yks_lc_t or '--'}` &rarr; "
+                    f"<span class='{eval_yks_lc[2]}'>{eval_yks_lc[1]} ({eval_yks_lc[0]})</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"**Yorkshire SC (Winter):**  \n"
-                    f"Age 11: `{yks_sc_11_t or '--'}` &rarr; <span class='{eval_yks_sc_11[2]}'>{eval_yks_sc_11[1]} ({eval_yks_sc_11[0]})</span> &nbsp;|&nbsp; "
-                    f"Age 12: `{yks_sc_12_t or '--'}` &rarr; <span class='{eval_yks_sc_12[2]}'>{eval_yks_sc_12[1]} ({eval_yks_sc_12[0]})</span>",
+                    f"**Yorkshire SC Winter (Age {active_age}):** `{yks_sc_t or '--'}` &rarr; "
+                    f"<span class='{eval_yks_sc[2]}'>{eval_yks_sc[1]} ({eval_yks_sc[0]})</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"**NER LC:**  \n"
-                    f"Age 11: `{ner_lc_11_t or '--'}` &rarr; <span class='{eval_ner_lc_11[2]}'>{eval_ner_lc_11[1]} ({eval_ner_lc_11[0]})</span> &nbsp;|&nbsp; "
-                    f"Age 12: `{ner_lc_12_t or '--'}` &rarr; <span class='{eval_ner_lc_12[2]}'>{eval_ner_lc_12[1]} ({eval_ner_lc_12[0]})</span>",
+                    f"**NER LC (Age {active_age}):** `{ner_lc_t or '--'}` &rarr; "
+                    f"<span class='{eval_ner_lc[2]}'>{eval_ner_lc[1]} ({eval_ner_lc[0]})</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"**NER SC (Winter):**  \n"
-                    f"Age 11: `{ner_sc_11_t or '--'}` &rarr; <span class='{eval_ner_sc_11[2]}'>{eval_ner_sc_11[1]} ({eval_ner_sc_11[0]})</span> &nbsp;|&nbsp; "
-                    f"Age 12: `{ner_sc_12_t or '--'}` &rarr; <span class='{eval_ner_sc_12[2]}'>{eval_ner_sc_12[1]} ({eval_ner_sc_12[0]})</span>",
+                    f"**NER SC Winter (Age {active_age}):** `{ner_sc_t or '--'}` &rarr; "
+                    f"<span class='{eval_ner_sc[2]}'>{eval_ner_sc[1]} ({eval_ner_sc[0]})</span>",
                     unsafe_allow_html=True,
                 )
                 st.markdown('</div>', unsafe_allow_html=True)
 
             with card_right:
-                st.write(f"**Championship Progress (Active: Age {active_age})**")
+                st.write(f"**Championship Progress (Age {active_age})**")
 
-                act_yks_lc_eval = eval_yks_lc_11 if active_age == "11" else eval_yks_lc_12
-                if act_yks_lc_eval[0] != "No Cut":
-                    st.caption(f"Yorkshire LC: {act_yks_lc_eval[0]} ({act_yks_lc_eval[3]:.1f}%)")
-                    st.progress(act_yks_lc_eval[3] / 100.0)
+                if eval_yks_lc[0] != "No Cut":
+                    st.caption(f"Yorkshire LC: {eval_yks_lc[0]} ({eval_yks_lc[3]:.1f}%)")
+                    st.progress(eval_yks_lc[3] / 100.0)
                 else:
-                    st.caption("Yorkshire LC: No target set.")
+                    st.caption(f"Yorkshire LC (Age {active_age}): No target set.")
 
-                act_yks_sc_eval = eval_yks_sc_11 if active_age == "11" else eval_yks_sc_12
-                if act_yks_sc_eval[0] != "No Cut":
-                    st.caption(f"Yorkshire SC (Winter): {act_yks_sc_eval[0]} ({act_yks_sc_eval[3]:.1f}%)")
-                    st.progress(act_yks_sc_eval[3] / 100.0)
+                if eval_yks_sc[0] != "No Cut":
+                    st.caption(f"Yorkshire SC (Winter): {eval_yks_sc[0]} ({eval_yks_sc[3]:.1f}%)")
+                    st.progress(eval_yks_sc[3] / 100.0)
                 else:
-                    st.caption("Yorkshire SC (Winter): No target set.")
+                    st.caption(f"Yorkshire SC Winter (Age {active_age}): No target set.")
 
-                act_ner_lc_eval = eval_ner_lc_11 if active_age == "11" else eval_ner_lc_12
-                if act_ner_lc_eval[0] != "No Cut":
-                    st.caption(f"NER LC: {act_ner_lc_eval[0]} ({act_ner_lc_eval[3]:.1f}%)")
-                    st.progress(act_ner_lc_eval[3] / 100.0)
+                if eval_ner_lc[0] != "No Cut":
+                    st.caption(f"NER LC: {eval_ner_lc[0]} ({eval_ner_lc[3]:.1f}%)")
+                    st.progress(eval_ner_lc[3] / 100.0)
                 else:
-                    st.caption("NER LC: No target set.")
+                    st.caption(f"NER LC (Age {active_age}): No target set.")
 
-                act_ner_sc_eval = eval_ner_sc_11 if active_age == "11" else eval_ner_sc_12
-                if act_ner_sc_eval[0] != "No Cut":
-                    st.caption(f"NER SC (Winter): {act_ner_sc_eval[0]} ({act_ner_sc_eval[3]:.1f}%)")
-                    st.progress(act_ner_sc_eval[3] / 100.0)
+                if eval_ner_sc[0] != "No Cut":
+                    st.caption(f"NER SC (Winter): {eval_ner_sc[0]} ({eval_ner_sc[3]:.1f}%)")
+                    st.progress(eval_ner_sc[3] / 100.0)
                 else:
-                    st.caption("NER SC (Winter): No target set.")
+                    st.caption(f"NER SC Winter (Age {active_age}): No target set.")
 
             st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER
+# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER (WITH AGE 10, 11, 12)
 # ------------------------------------------------------------------------------
 with main_tab_summary:
     sum_col1, sum_col2 = st.columns([1, 3])
     with sum_col1:
-        summary_age = st.radio("🎯 **Target Age Category:**", ["11", "12"], horizontal=True, index=0, key="age_summary_tab")
+        summary_age = st.radio("🎯 **Target Age Category:**", ["10", "11", "12"], horizontal=True, index=1, key="age_summary_tab")
     with sum_col2:
         st.info(f"Viewing all qualifications, close targets (<1s), and chasing events for **Age {summary_age}**.")
 
@@ -979,7 +1049,7 @@ with main_tab_summary:
                     st.caption("No events currently within 1.0s.")
 
             with col_c:
-                st.markdown(f"**⏱️ Chasing ({len(chasing_events)})**")
+                st.markdown(f"**⏱️️ Chasing ({len(chasing_events)})**")
                 if chasing_events:
                     for item in chasing_events:
                         st.markdown(
@@ -995,7 +1065,7 @@ with main_tab_summary:
 # ==============================================================================
 # 12. TABULAR VIEW OF ALL SWIMS
 # ==============================================================================
-with st.expander("📋 Full Table View of All Swims & Active Age Standards"):
+with st.expander(f"📋 Full Table View of All Swims & Standards (Active Age: {active_age})"):
     summary_rows = []
     for ev in unique_events:
         best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
