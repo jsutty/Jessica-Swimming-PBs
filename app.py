@@ -34,56 +34,18 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. STYLING (AUTHENTIC CITY OF LEEDS SC NAVY & GOLD)
+# 2. STYLING (CITY OF LEEDS SC NAVY & GOLD + LOGO BUTTON OVERLAY)
 # ==============================================================================
 st.markdown(
     """
     <style>
     .main { background-color: #f1f5f9; }
     .stApp header { background-color: transparent; }
-    
-    /* Leeds SC Color Scheme */
-    :root {
-        --leeds-navy: #002B49;
-        --leeds-blue: #005A9C;
-        --leeds-gold: #FFC72C;
-        --leeds-light-gold: #FFF5D6;
-    }
 
     .txt-green { color: #047857; font-weight: 700; }
     .txt-amber { color: #b45309; font-weight: 700; }
     .txt-red { color: #b91c1c; font-weight: 700; }
     .txt-gray { color: #64748b; }
-
-    /* Top Club Header Banner */
-    .club-banner {
-        background: linear-gradient(135deg, #002B49 0%, #005A9C 100%);
-        border-radius: 12px;
-        padding: 18px 24px;
-        color: #ffffff;
-        margin-bottom: 20px;
-        border-bottom: 5px solid #FFC72C;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .club-banner h1 {
-        color: #ffffff;
-        font-size: 1.85rem;
-        font-weight: 800;
-        margin: 0;
-        padding: 0;
-    }
-    .club-banner p {
-        color: #e2e8f0;
-        margin: 4px 0 0 0;
-        font-size: 0.95rem;
-    }
-    .club-banner a {
-        color: #FFC72C;
-        text-decoration: underline;
-        font-weight: 600;
-    }
 
     div[data-testid="stMetric"] {
         background-color: #ffffff;
@@ -121,7 +83,37 @@ st.markdown(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
     }
 
-    /* Radio button active accents */
+    /* Clickable Interactive Logo Button Styling */
+    div.logo-container {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+    }
+    div.logo-container img {
+        transition: transform 0.15s ease-in-out, filter 0.15s ease-in-out;
+    }
+    div.logo-container:hover img {
+        transform: scale(1.04);
+        filter: drop-shadow(0 4px 6px rgba(0, 43, 73, 0.15));
+    }
+    /* Invisible Button overlay covering the logo */
+    div[data-testid="column"]:has(.logo-container) div[data-testid="stButton"] button {
+        background-color: transparent !important;
+        border: none !important;
+        color: transparent !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10;
+        cursor: pointer;
+    }
+    div[data-testid="column"]:has(.logo-container) div[data-testid="stButton"] button:hover {
+        background-color: transparent !important;
+        border: none !important;
+    }
+
     div[role="radiogroup"] > label[data-checked="true"] {
         color: #002B49 !important;
         font-weight: 700;
@@ -404,7 +396,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. BULLETPROOF MULTI-TABLE GOOGLE SHEETS FETCHER (AGE 10, 11, 12)
+# 6. MULTI-TABLE GOOGLE SHEETS FETCHER (AGE 10, 11, 12)
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -458,7 +450,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Seek real header row containing age categories and event labels
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
@@ -530,7 +521,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # STRICT AGE 10, 11 & 12 COLUMN ISOLATION (Excludes 17+, Over, 17/OV)
+    # STRICT AGE 10, 11 & 12 COLUMN ISOLATION
     col_age_10 = None
     col_age_11 = None
     col_age_12 = None
@@ -593,7 +584,7 @@ def parse_standards_dataframe(df_raw, default_meet):
     return saved_count, f"Mapped columns -> " + " | ".join(mapped_labels)
 
 # ==============================================================================
-# 7. AUTOMATIC STANDARDS SYNC & SESSION STATE INITIALIZATION
+# 7. AUTOMATIC SYNC & INITIALIZATION
 # ==============================================================================
 if "swimmer_df" not in st.session_state:
     st.session_state.swimmer_df = load_saved_pbs()
@@ -601,7 +592,7 @@ if "swimmer_df" not in st.session_state:
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = load_saved_standards()
 
-# Automatic background synchronization from Google Sheets on app startup
+# Automatic background synchronization from Google Sheets on app launch
 if "auto_synced" not in st.session_state:
     df_auto, err_auto = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
     if not err_auto and df_auto is not None and not df_auto.empty:
@@ -642,18 +633,18 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 8. CITY OF LEEDS SC BRANDED HEADER WITH INSTANT SYNC
+# 8. CITY OF LEEDS SC HEADER WITH INTERACTIVE CLICKABLE LOGO SYNC
 # ==============================================================================
-banner_col1, banner_col2, banner_col3 = st.columns([5, 2, 2])
+banner_left, banner_right = st.columns([6, 2])
 
-with banner_col1:
+with banner_left:
     st.markdown(
         f"""
         <div style="padding-top: 4px;">
             <h1 style="color: #002B49; margin-bottom: 2px; font-weight: 800; font-size: 2.1rem;">
                 🏊‍♀️ {SWIMMER_NAME}
             </h1>
-            <p style="color: #475569; font-size: 1.05rem; margin: 0;">
+            <p style="color: #475569; font-size: 1.02rem; margin: 0;">
                 <strong style="color: #005A9C;">City of Leeds Swimming Club</strong> &bull; 
                 Swim England: <code style="background-color: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{SWIMMER_TIREF}</code> &bull; 
                 <a href="{SWIMMER_URL}" target="_blank" style="color: #005A9C; font-weight: 600;">Rankings Profile ↗</a>
@@ -663,19 +654,25 @@ with banner_col1:
         unsafe_allow_html=True,
     )
 
-with banner_col2:
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-    if st.button("🔄 Sync Google Sheets Now", use_container_width=True, help="Refetches live cuts from EXPORT tab"):
-        ok, res_msg = perform_manual_sync()
-        if ok:
-            st.success(res_msg)
-            st.rerun()
-        else:
-            st.error(res_msg)
-
-with banner_col3:
-    # Direct Official Club Logo
-    st.image(CLUB_LOGO_URL, width=170)
+with banner_right:
+    # Interactive Logo: Image rendered with an invisible click overlay
+    st.markdown(
+        f"""
+        <div class="logo-container" title="Tap logo to sync qualifying times from Google Sheets">
+            <img src="{CLUB_LOGO_URL}" width="175" style="display: block;" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Invisible button aligned directly over the logo
+    if st.button("logo_sync_btn", key="logo_sync_action", help="Tap logo to sync qualifying times from Google Sheets"):
+        with st.spinner("Syncing qualifying times..."):
+            ok, res_msg = perform_manual_sync()
+            if ok:
+                st.toast("✅ Qualifying times synchronized successfully!")
+                st.rerun()
+            else:
+                st.error(res_msg)
 
 st.markdown("<hr style='border: none; border-top: 3px solid #FFC72C; margin: 10px 0 20px 0;'>", unsafe_allow_html=True)
 
@@ -703,12 +700,13 @@ if st.session_state.swimmer_df is None:
 df = st.session_state.swimmer_df
 
 # ==============================================================================
-# 10. ADVANCED STANDARDS CONFIG & LIVE PREVIEW
+# 10. CONFIGURE COMPETITION QUALIFYING TIMES (EXPANDER)
 # ==============================================================================
-with st.expander("⚙️ Advanced Standards Configuration & Diagnostic Tools", expanded=False):
-    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Custom Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
+with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False):
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
+        st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the City of Leeds SC logo.")
         c_url, c_tab = st.columns([2, 1])
         with c_url:
             gsheet_raw_url = st.text_input("Google Sheet Link", value=f"{DEFAULT_GSHEET_URL}#gid={DEFAULT_WORKSHEET_GID}")
@@ -719,7 +717,7 @@ with st.expander("⚙️ Advanced Standards Configuration & Diagnostic Tools", e
 
         c_sync1, c_sync2 = st.columns([1, 1])
         with c_sync1:
-            sync_btn = st.button("🔄 Force Refresh Standards", use_container_width=True)
+            sync_btn = st.button("🔄 Force Refresh Standards Now", use_container_width=True)
         with c_sync2:
             debug_btn = st.button("🔍 Check Connection & Preview Data", use_container_width=True)
 
@@ -862,7 +860,6 @@ with main_tab_events:
 
         best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
 
-        # Standards for Active Age
         yks_lc_t, yks_lc_s = lookup_standard("Yorkshire LC", active_age, ev)
         yks_sc_t, yks_sc_s = lookup_standard("Yorkshire SC (Winter)", active_age, ev)
         ner_lc_t, ner_lc_s = lookup_standard("NER LC", active_age, ev)
@@ -1049,7 +1046,7 @@ with main_tab_summary:
                     st.caption("No events currently within 1.0s.")
 
             with col_c:
-                st.markdown(f"**⏱️️ Chasing ({len(chasing_events)})**")
+                st.markdown(f"**⏱️ Chasing ({len(chasing_events)})**")
                 if chasing_events:
                     for item in chasing_events:
                         st.markdown(
