@@ -584,17 +584,14 @@ def parse_standards_dataframe(df_raw, default_meet):
             continue
         c_str = str(col).strip().lower()
 
-        # Check for ages 10 to 17
         for target_age in range(10, 18):
             age_str = str(target_age)
             if age_str in mapped_ages:
                 continue
             
-            # Special check: for 17, also match 17+, 17/ov, 17 & over
             if target_age == 17:
                 is_match = bool(re.search(r"(?<!\d)17(?!\d)", c_str)) or any(k in c_str for k in ["17+", "17/ov", "17 & over", "17 & ov", "17+yrs"])
             else:
-                # Do not match if column indicates an older category (e.g. ignore if 17 is also in name)
                 if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]) and target_age < 17:
                     continue
                 is_match = bool(re.search(rf"(?<!\d){target_age}(?!\d)", c_str))
@@ -731,7 +728,7 @@ with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(
     st.write("2. Select all content from the page table, copy it, and paste it below:")
     raw_input = st.text_area("Paste table content here:", height=110, placeholder="Paste Swim England table text or HTML...")
     if st.button("🚀 Process & Store Times", use_container_width=True):
-        parsed = parse_swim_england_table(raw_input)
+        parsed = parse_swim_england_table(raw_content=raw_input)
         if parsed is not None and not parsed.empty:
             st.session_state.swimmer_df = parsed
             save_pbs_to_disk(parsed)
@@ -868,7 +865,7 @@ main_tab_events, main_tab_summary = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: DETAILED EVENT CARDS (WITH AGES 10-17 DROPDOWN)
+# TAB 1: DETAILED EVENT CARDS
 # ------------------------------------------------------------------------------
 with main_tab_events:
     f_col1, f_col2 = st.columns([1, 2])
@@ -888,18 +885,41 @@ with main_tab_events:
             key="stroke_filter_tab"
         )
 
-    unique_yks_cuts = 0
-    for ev in unique_events:
-        best_lc_sec, _ = get_best_eligible_times(ev)
-        _, target_s = lookup_standard("Yorkshire LC", active_age, ev)
-        if target_s is not None and best_lc_sec is not None and best_lc_sec <= target_s:
-            unique_yks_cuts += 1
+    # Calculate exact cuts attained across the 4 major championships for active age
+    num_yks_lc = 0
+    num_ner_lc = 0
+    num_yks_sc = 0
+    num_ner_sc = 0
 
+    for ev in unique_events:
+        best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
+
+        # Yorkshire LC
+        _, y_lc_s = lookup_standard("Yorkshire LC", active_age, ev)
+        if y_lc_s is not None and best_lc_sec is not None and best_lc_sec <= y_lc_s:
+            num_yks_lc += 1
+
+        # NER LC
+        _, n_lc_s = lookup_standard("NER LC", active_age, ev)
+        if n_lc_s is not None and best_lc_sec is not None and best_lc_sec <= n_lc_s:
+            num_ner_lc += 1
+
+        # Yorkshire SC (Winter)
+        _, y_sc_s = lookup_standard("Yorkshire SC (Winter)", active_age, ev)
+        if y_sc_s is not None and best_sc_sec is not None and best_sc_sec <= y_sc_s:
+            num_yks_sc += 1
+
+        # NER SC (Winter)
+        _, n_sc_s = lookup_standard("NER SC (Winter)", active_age, ev)
+        if n_sc_s is not None and best_sc_sec is not None and best_sc_sec <= n_sc_s:
+            num_ner_sc += 1
+
+    # 4 Refocused Championship Metric Cards
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(f"Unique Yorkshire LC Cuts (Age {active_age})", unique_yks_cuts)
-    m2.metric("Total Events Logged", len(unique_events))
-    m3.metric("Total Recorded PBs", len(df))
-    m4.metric("Standards Configured", len(st.session_state.standards_db))
+    m1.metric("No. of Yorkshires (LC)", num_yks_lc)
+    m2.metric("No. of NERs (LC)", num_ner_lc)
+    m3.metric("No. of Winter Yorkshires (SC)", num_yks_sc)
+    m4.metric("No. of Winter NERs (SC)", num_ner_sc)
 
     st.markdown("---")
 
@@ -934,7 +954,7 @@ with main_tab_events:
                     lc_r = lc_sub.iloc[0]
                     st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
                 else:
-                    st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
+                    st.markdown("**🏊‍♂️️ LC PB:** *No official LC PB recorded*")
 
                 if not sc_sub.empty:
                     sc_r = sc_sub.iloc[0]
@@ -991,7 +1011,7 @@ with main_tab_events:
             st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER (WITH AGES 10-17 DROPDOWN)
+# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER
 # ------------------------------------------------------------------------------
 with main_tab_summary:
     sum_col1, sum_col2 = st.columns([1, 3])
