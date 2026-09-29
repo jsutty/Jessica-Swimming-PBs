@@ -23,7 +23,6 @@ DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdM
 DEFAULT_WORKSHEET_TAB = "EXPORT"
 DEFAULT_WORKSHEET_GID = "839340006"
 
-# Supported age bands for future-proofing
 ALL_AGE_BANDS = [str(a) for a in range(10, 18)]  # ['10', '11', '12', '13', '14', '15', '16', '17']
 
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,11 +90,11 @@ st.markdown(
         background-color: #FFC72C !important;
         color: #002B49 !important;
         font-weight: 800 !important;
-        font-size: 1.05rem !important;
+        font-size: 0.98rem !important;
         border: 2px solid #002B49 !important;
         border-radius: 8px !important;
-        padding: 8px 16px !important;
-        box-shadow: 0 2px 5px rgba(0, 43, 73, 0.15) !important;
+        padding: 6px 12px !important;
+        box-shadow: 0 2px 4px rgba(0, 43, 73, 0.12) !important;
         transition: all 0.15s ease-in-out !important;
     }
     div.sync-btn-container button:hover {
@@ -103,7 +102,27 @@ st.markdown(
         color: #001f35 !important;
         border-color: #001f35 !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 4px 8px rgba(0, 43, 73, 0.22) !important;
+        box-shadow: 0 4px 6px rgba(0, 43, 73, 0.18) !important;
+    }
+
+    /* Branded Navy & Gold Direct SE Sync Button */
+    div.sync-pbs-container button {
+        background-color: #002B49 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+        border: 2px solid #FFC72C !important;
+        border-radius: 8px !important;
+        padding: 5px 10px !important;
+        margin-top: 4px !important;
+        box-shadow: 0 2px 4px rgba(0, 43, 73, 0.12) !important;
+        transition: all 0.15s ease-in-out !important;
+    }
+    div.sync-pbs-container button:hover {
+        background-color: #00406c !important;
+        color: #FFC72C !important;
+        border-color: #FFC72C !important;
+        transform: translateY(-1px) !important;
     }
 
     /* Donut Ring Card Item */
@@ -356,7 +375,7 @@ def save_standards_to_disk(standards_dict):
         pass
 
 # ==============================================================================
-# 5. SWIM ENGLAND PARSER
+# 5. SWIM ENGLAND PARSER & DIRECT LIVE INGESTION
 # ==============================================================================
 def parse_swim_england_table(raw_content):
     if not raw_content or not str(raw_content).strip():
@@ -448,6 +467,29 @@ def parse_swim_england_table(raw_content):
         return None
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
+def fetch_and_parse_swim_england_direct():
+    """Fetches Swim England rankings page directly using browser TLS impersonation."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://www.swimmingresults.org/",
+    }
+    try:
+        resp = requests.get(SWIMMER_URL, impersonate="chrome120", headers=headers, timeout=14)
+        if resp.status_code != 200 or not resp.text.strip():
+            return None, f"HTTP Error {resp.status_code} received from Swim England."
+
+        parsed_df = parse_swim_england_table(resp.text)
+        if parsed_df is not None and not parsed_df.empty:
+            return parsed_df, None
+        return None, "Profile page loaded, but no valid swim PB tables could be detected."
+    except Exception as e:
+        return None, f"Direct connection failed: {str(e)}"
+
 # ==============================================================================
 # 6. FUTURE-PROOF MULTI-TABLE FETCHER (AGES 10 TO 17+)
 # ==============================================================================
@@ -503,7 +545,6 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
-    # Seek real header row containing any supported age number
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
@@ -575,7 +616,6 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # Map all available age columns between 10 and 17 dynamically
     detected_age_cols = []
     mapped_ages = set()
 
@@ -681,9 +721,9 @@ def lookup_standard(meet, age, event_name):
     return None, None
 
 # ==============================================================================
-# 8. CITY OF LEEDS SC HEADER WITH YELLOW 'SYNC QTS' BUTTON
+# 8. CITY OF LEEDS SC HEADER WITH STACKED SYNC BUTTONS
 # ==============================================================================
-banner_left, banner_mid, banner_right = st.columns([5, 2, 2])
+banner_left, banner_mid, banner_right = st.columns([5, 2.4, 2])
 
 with banner_left:
     st.markdown(
@@ -703,7 +743,9 @@ with banner_left:
     )
 
 with banner_mid:
-    st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    
+    # 1. Sync QTs Button (Yellow & Blue)
     st.markdown('<div class="sync-btn-container">', unsafe_allow_html=True)
     if st.button("⚡ Sync QTs", use_container_width=True, help="Fetch latest qualifying times directly from Google Sheets"):
         with st.spinner("Syncing qualifying times..."):
@@ -713,6 +755,21 @@ with banner_mid:
                 st.rerun()
             else:
                 st.error(res_msg)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 2. Sync PBs from Swim England Button (Navy & Gold)
+    st.markdown('<div class="sync-pbs-container">', unsafe_allow_html=True)
+    if st.button("🏊‍♀️ Sync PBs from Swim England", use_container_width=True, help="Directly pulls official PBs from Jessica's Swim England profile"):
+        with st.spinner("Fetching PBs directly from Swim England rankings..."):
+            direct_df, direct_err = fetch_and_parse_swim_england_direct()
+            if direct_df is not None and not direct_df.empty:
+                st.session_state.swimmer_df = direct_df
+                save_pbs_to_disk(direct_df)
+                st.toast(f"✅ Successfully refreshed {len(direct_df)} PBs from Swim England!")
+                st.rerun()
+            else:
+                st.error(f"Live rankings pull failed: {direct_err}")
+                st.info("Tip: You can always use the Step 1 expander below to paste the table directly if Swim England is blocking automated requests.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with banner_right:
@@ -738,7 +795,7 @@ with st.expander("📥 Step 1: Update Jessica's Times from Rankings", expanded=(
             st.error("No valid times found. Please check that table rows were included.")
 
 if st.session_state.swimmer_df is None:
-    st.info("Paste and process Jessica's table above to load the tracking dashboard.")
+    st.info("Paste and process Jessica's table above or tap 'Sync PBs from Swim England' to load the tracking dashboard.")
     st.stop()
 
 df = st.session_state.swimmer_df
@@ -747,7 +804,7 @@ df = st.session_state.swimmer_df
 # 10. CONFIGURE COMPETITION QUALIFYING TIMES (EXPANDER)
 # ==============================================================================
 with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False):
-    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️️ Single Event Entry"])
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏ Single Event Entry"])
 
     with tab_gsheet:
         st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the 'Sync QTs' button above.")
@@ -885,7 +942,6 @@ with main_tab_events:
             key="stroke_filter_tab"
         )
 
-    # Calculate exact cuts attained across the 4 major championships for active age
     num_yks_lc = 0
     num_ner_lc = 0
     num_yks_sc = 0
@@ -914,7 +970,6 @@ with main_tab_events:
         if n_sc_s is not None and best_sc_sec is not None and best_sc_sec <= n_sc_s:
             num_ner_sc += 1
 
-    # 4 Refocused Championship Metric Cards
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("No. of Yorkshires (LC)", num_yks_lc)
     m2.metric("No. of NERs (LC)", num_ner_lc)
@@ -954,7 +1009,7 @@ with main_tab_events:
                     lc_r = lc_sub.iloc[0]
                     st.markdown(f"**🏊‍♂️ LC PB:** `{lc_r['PB_Time']}` &nbsp;|&nbsp; Conv SC: `{lc_r['Conv_Time']}`")
                 else:
-                    st.markdown("**🏊‍♂️️ LC PB:** *No official LC PB recorded*")
+                    st.markdown("**🏊‍♂️ LC PB:** *No official LC PB recorded*")
 
                 if not sc_sub.empty:
                     sc_r = sc_sub.iloc[0]
