@@ -85,7 +85,6 @@ st.markdown(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
     }
 
-    /* Branded Yellow & Blue Sync QTs Button */
     div.sync-btn-container button {
         background-color: #FFC72C !important;
         color: #002B49 !important;
@@ -105,7 +104,6 @@ st.markdown(
         box-shadow: 0 4px 6px rgba(0, 43, 73, 0.18) !important;
     }
 
-    /* Branded Navy & Gold Direct SE Sync Button */
     div.sync-pbs-container button {
         background-color: #002B49 !important;
         color: #ffffff !important;
@@ -125,7 +123,6 @@ st.markdown(
         transform: translateY(-1px) !important;
     }
 
-    /* Donut Ring Card Item */
     .donut-card {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -468,7 +465,6 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 def fetch_and_parse_swim_england_direct():
-    """Fetches Swim England rankings page directly using browser TLS impersonation."""
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -681,6 +677,13 @@ if "swimmer_df" not in st.session_state:
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = load_saved_standards()
 
+# In-memory storage for head-to-head competitor data
+if "competitor_name" not in st.session_state:
+    st.session_state.competitor_name = "Competitor"
+
+if "competitor_df" not in st.session_state:
+    st.session_state.competitor_df = None
+
 if "auto_synced" not in st.session_state:
     df_auto, err_auto = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
     if not err_auto and df_auto is not None and not df_auto.empty:
@@ -745,7 +748,6 @@ with banner_left:
 with banner_mid:
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
     
-    # 1. Sync QTs Button (Yellow & Blue)
     st.markdown('<div class="sync-btn-container">', unsafe_allow_html=True)
     if st.button("⚡ Sync QTs", use_container_width=True, help="Fetch latest qualifying times directly from Google Sheets"):
         with st.spinner("Syncing qualifying times..."):
@@ -757,7 +759,6 @@ with banner_mid:
                 st.error(res_msg)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 2. Sync PBs from Swim England Button (Navy & Gold)
     st.markdown('<div class="sync-pbs-container">', unsafe_allow_html=True)
     if st.button("🏊‍♀️ Sync PBs from Swim England", use_container_width=True, help="Directly pulls official PBs from Jessica's Swim England profile"):
         with st.spinner("Fetching PBs directly from Swim England rankings..."):
@@ -804,7 +805,7 @@ df = st.session_state.swimmer_df
 # 10. CONFIGURE COMPETITION QUALIFYING TIMES (EXPANDER)
 # ==============================================================================
 with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False):
-    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏ Single Event Entry"])
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
 
     with tab_gsheet:
         st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the 'Sync QTs' button above.")
@@ -914,11 +915,12 @@ def get_best_eligible_times(ev):
     return best_lc_sec, best_sc_sec
 
 # ==============================================================================
-# 11. APPLICATION NAVIGATION TABS (WITH AGES 10 TO 17 DROPDOWNS)
+# 11. APPLICATION NAVIGATION TABS (WITH HEAD-TO-HEAD COMPARISON TAB)
 # ==============================================================================
-main_tab_events, main_tab_summary = st.tabs([
+main_tab_events, main_tab_summary, main_tab_h2h = st.tabs([
     "📊 Event-by-Event Tracker",
-    "🏆 Championship Summary & Tracker"
+    "🏆 Championship Summary & Tracker",
+    "⚔️ Swimmer Head-to-Head"
 ])
 
 # ------------------------------------------------------------------------------
@@ -950,22 +952,18 @@ with main_tab_events:
     for ev in unique_events:
         best_lc_sec, best_sc_sec = get_best_eligible_times(ev)
 
-        # Yorkshire LC
         _, y_lc_s = lookup_standard("Yorkshire LC", active_age, ev)
         if y_lc_s is not None and best_lc_sec is not None and best_lc_sec <= y_lc_s:
             num_yks_lc += 1
 
-        # NER LC
         _, n_lc_s = lookup_standard("NER LC", active_age, ev)
         if n_lc_s is not None and best_lc_sec is not None and best_lc_sec <= n_lc_s:
             num_ner_lc += 1
 
-        # Yorkshire SC (Winter)
         _, y_sc_s = lookup_standard("Yorkshire SC (Winter)", active_age, ev)
         if y_sc_s is not None and best_sc_sec is not None and best_sc_sec <= y_sc_s:
             num_yks_sc += 1
 
-        # NER SC (Winter)
         _, n_sc_s = lookup_standard("NER SC (Winter)", active_age, ev)
         if n_sc_s is not None and best_sc_sec is not None and best_sc_sec <= n_sc_s:
             num_ner_sc += 1
@@ -1182,6 +1180,129 @@ with main_tab_summary:
                     st.caption("No other events in progress.")
 
         st.markdown('</div>', unsafe_allow_html=True)
+
+# ------------------------------------------------------------------------------
+# TAB 3: SWIMMER HEAD-TO-HEAD COMPARISON
+# ------------------------------------------------------------------------------
+with main_tab_h2h:
+    st.markdown("### ⚔️ Compare Personal Bests Side-by-Side")
+    st.write(
+        "Enter a competitor or teammate's name, paste their Swim England rankings table, "
+        "and compare Jessica's official personal bests directly."
+    )
+
+    with st.expander("📥 Load Competitor Swim England Profile Data", expanded=(st.session_state.competitor_df is None)):
+        comp_name_input = st.text_input("Competitor / Swimmer Name:", value=st.session_state.competitor_name)
+        comp_raw_text = st.text_area(
+            "Paste Competitor Swim England table text or HTML here:",
+            height=120,
+            placeholder="Paste table copied from Swim England rankings profile..."
+        )
+        if st.button("🚀 Load & Compare Swimmer", use_container_width=True):
+            if comp_name_input.strip():
+                st.session_state.competitor_name = comp_name_input.strip()
+            parsed_comp = parse_swim_england_table(comp_raw_text)
+            if parsed_comp is not None and not parsed_comp.empty:
+                st.session_state.competitor_df = parsed_comp
+                st.success(f"Successfully loaded {len(parsed_comp)} PBs for {st.session_state.competitor_name}!")
+                st.rerun()
+            else:
+                st.error("Could not parse swimmer times. Verify you copied the table rows directly from Swim England.")
+
+    comp_df = st.session_state.competitor_df
+    comp_name = st.session_state.competitor_name
+
+    if comp_df is None:
+        st.info("Paste a swimmer's profile table above to generate the side-by-side comparison.")
+    else:
+        filter_col1, filter_col2 = st.columns([1, 2])
+        with filter_col1:
+            course_filter = st.radio(
+                "🏊 **Filter Course:**",
+                ["All Courses", "Short Course (25m)", "Long Course (50m)"],
+                horizontal=True,
+                key="h2h_course_filter"
+            )
+        with filter_col2:
+            st.caption(f"Comparing **Jessica Sutcliffe** vs. **{comp_name}**.")
+
+        # Build comparison records
+        courses_to_include = (
+            ["Short Course (25m)", "Long Course (50m)"]
+            if course_filter == "All Courses"
+            else [course_filter]
+        )
+
+        comparison_rows = []
+        jessica_faster = 0
+        comp_faster = 0
+        tied = 0
+
+        # Collect union of all events from both swimmers
+        all_unique_evs = sorted(
+            list(set(df["Event"].unique().tolist() + comp_df["Event"].unique().tolist())),
+            key=gala_order_key
+        )
+
+        for ev in all_unique_evs:
+            for crs in courses_to_include:
+                j_sub = df[(df["Event"] == ev) & (df["Course"] == crs)]
+                c_sub = comp_df[(comp_df["Event"] == ev) & (comp_df["Course"] == crs)]
+
+                # Only include if at least one swimmer has a PB in this course
+                if j_sub.empty and c_sub.empty:
+                    continue
+
+                j_sec = j_sub.iloc[0]["PB_Sec"] if not j_sub.empty else None
+                j_time_str = j_sub.iloc[0]["PB_Time"] if not j_sub.empty else "--"
+
+                c_sec = c_sub.iloc[0]["PB_Sec"] if not c_sub.empty else None
+                c_time_str = c_sub.iloc[0]["PB_Time"] if not c_sub.empty else "--"
+
+                if j_sec is not None and c_sec is not None:
+                    diff = j_sec - c_sec
+                    if abs(diff) < 0.001:
+                        lead = "Tied 🤝"
+                        tied += 1
+                    elif diff < 0:
+                        lead = f"Jessica by -{abs(diff):.2f}s 🎯"
+                        jessica_faster += 1
+                    else:
+                        lead = f"{comp_name} by -{diff:.2f}s"
+                        comp_faster += 1
+                elif j_sec is not None:
+                    lead = "Jessica only"
+                else:
+                    lead = f"{comp_name} only"
+
+                crs_label = "SC (25m)" if crs == "Short Course (25m)" else "LC (50m)"
+                comparison_rows.append({
+                    "Event": f"{ev} ({crs_label})" if course_filter == "All Courses" else ev,
+                    "Course": crs_label,
+                    f"Jessica PB": j_time_str,
+                    f"{comp_name} PB": c_time_str,
+                    "Advantage": lead,
+                    "Sort": gala_order_key(ev),
+                })
+
+        # KPI Summary for Head to Head
+        h1, h2, h3, h4 = st.columns(4)
+        h1.metric("Total Events Compared", len(comparison_rows))
+        h2.metric("Jessica Ahead 🏊‍♀️", jessica_faster)
+        h3.metric(f"{comp_name} Ahead", comp_faster)
+        h4.metric("Tied", tied)
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+        if comparison_rows:
+            comp_display_df = pd.DataFrame(comparison_rows)
+            comp_display_df = comp_display_df.sort_values(by="Sort").drop(columns=["Sort"])
+            if course_filter != "All Courses":
+                comp_display_df = comp_display_df.drop(columns=["Course"])
+
+            st.dataframe(comp_display_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No common events found for the selected course filter.")
 
 # ==============================================================================
 # 12. TABULAR VIEW OF ALL SWIMS
