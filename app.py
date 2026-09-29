@@ -23,6 +23,9 @@ DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1zwHlCW-r2GaSJMkIdM
 DEFAULT_WORKSHEET_TAB = "EXPORT"
 DEFAULT_WORKSHEET_GID = "839340006"
 
+# Supported age bands for future-proofing
+ALL_AGE_BANDS = [str(a) for a in range(10, 18)]  # ['10', '11', '12', '13', '14', '15', '16', '17']
+
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 PBS_FILE = os.path.join(DATA_DIR, "jessica_pbs.json")
 STANDARDS_FILE = os.path.join(DATA_DIR, "standards.json")
@@ -103,9 +106,31 @@ st.markdown(
         box-shadow: 0 4px 8px rgba(0, 43, 73, 0.22) !important;
     }
 
-    div[role="radiogroup"] > label[data-checked="true"] {
-        color: #002B49 !important;
+    /* Donut Ring Card Item */
+    .donut-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 140px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .donut-card-title {
+        font-size: 0.78rem;
         font-weight: 700;
+        color: #002B49;
+        margin-bottom: 6px;
+        line-height: 1.1;
+    }
+    .donut-card-status {
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-top: 4px;
     }
     </style>
     """,
@@ -113,8 +138,47 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. TIME HELPERS & NORMALIZATION
+# 3. TIME HELPERS, NORMALIZATION & DONUT RENDERER
 # ==============================================================================
+def render_donut_chart(title, pace_eval):
+    status, gap_text, status_class, pct = pace_eval
+
+    if status == "No Cut":
+        color = "#94a3b8"
+        disp_pct = "--"
+        stroke_dash = "0, 100"
+        subtitle = "<span class='txt-gray'>No standard</span>"
+    else:
+        disp_pct = f"{int(round(pct))}%"
+        stroke_dash = f"{min(pct, 100):.1f}, 100"
+        if "Qualified" in status:
+            color = "#047857"
+            subtitle = f"<span class='txt-green'>{gap_text} (Met)</span>"
+        elif "Within 1s" in status:
+            color = "#d97706"
+            subtitle = f"<span class='txt-amber'>{gap_text}</span>"
+        else:
+            color = "#dc2626"
+            subtitle = f"<span class='txt-red'>{gap_text}</span>"
+
+    svg_donut = f"""
+    <div class="donut-card">
+        <div class="donut-card-title">{title}</div>
+        <svg viewBox="0 0 36 36" style="width: 68px; height: 68px; transform: rotate(-90deg);">
+            <path stroke="#e2e8f0" stroke-width="3.8" fill="none"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path stroke="{color}" stroke-width="3.8" stroke-dasharray="{stroke_dash}" stroke-linecap="round" fill="none"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <text x="18" y="20.5" text-anchor="middle"
+                  style="fill: #002B49; font-weight: 800; font-size: 8.5px; transform: rotate(90deg); transform-origin: 18px 18px;">
+                {disp_pct}
+            </text>
+        </svg>
+        <div class="donut-card-status">{subtitle}</div>
+    </div>
+    """
+    return svg_donut
+
 def parse_time_value(val):
     if val is None or pd.isna(val):
         return None
@@ -385,7 +449,7 @@ def parse_swim_england_table(raw_content):
     return pd.DataFrame(records).drop_duplicates(subset=["Course", "Event", "PB_Time"])
 
 # ==============================================================================
-# 6. MULTI-TABLE GOOGLE SHEETS FETCHER (AGE 10, 11, 12)
+# 6. FUTURE-PROOF MULTI-TABLE FETCHER (AGES 10 TO 17+)
 # ==============================================================================
 def fetch_google_sheet_csv(sheet_url, tab_identifier):
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -439,10 +503,11 @@ def fetch_google_sheet_csv(sheet_url, tab_identifier):
     if not raw_lines:
         return None, "Worksheet appears to be completely empty."
 
+    # Seek real header row containing any supported age number
     header_idx = 0
     for i, line in enumerate(raw_lines[:20]):
         line_l = line.lower()
-        has_age = bool(re.search(r"(?<!\d)(?:10|11|12)(?!\d)", line_l))
+        has_age = bool(re.search(r"(?<!\d)(?:1[0-7])(?!\d)", line_l))
         has_ev = any(k in line_l for k in ["event", "stroke", "free", "comp", "50", "100", "distance"])
         if has_age and has_ev:
             header_idx = i
@@ -510,39 +575,37 @@ def parse_standards_dataframe(df_raw, default_meet):
     if not event_col:
         event_col = df.columns[1] if has_comp_col else df.columns[0]
 
-    # STRICT AGE 10, 11 & 12 COLUMN ISOLATION
-    col_age_10 = None
-    col_age_11 = None
-    col_age_12 = None
+    # Map all available age columns between 10 and 17 dynamically
+    detected_age_cols = []
+    mapped_ages = set()
 
     for col in df.columns:
         if col in [comp_col, event_col]:
             continue
         c_str = str(col).strip().lower()
 
-        if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]):
-            continue
+        # Check for ages 10 to 17
+        for target_age in range(10, 18):
+            age_str = str(target_age)
+            if age_str in mapped_ages:
+                continue
+            
+            # Special check: for 17, also match 17+, 17/ov, 17 & over
+            if target_age == 17:
+                is_match = bool(re.search(r"(?<!\d)17(?!\d)", c_str)) or any(k in c_str for k in ["17+", "17/ov", "17 & over", "17 & ov", "17+yrs"])
+            else:
+                # Do not match if column indicates an older category (e.g. ignore if 17 is also in name)
+                if any(bad in c_str for bad in ["17", "18", "19", "over", "ov", "+"]) and target_age < 17:
+                    continue
+                is_match = bool(re.search(rf"(?<!\d){target_age}(?!\d)", c_str))
 
-        if re.search(r"(?<!\d)10(?!\d)", c_str):
-            if col_age_10 is None:
-                col_age_10 = col
-        elif re.search(r"(?<!\d)11(?!\d)", c_str):
-            if col_age_11 is None:
-                col_age_11 = col
-        elif re.search(r"(?<!\d)12(?!\d)", c_str):
-            if col_age_12 is None:
-                col_age_12 = col
+            if is_match:
+                detected_age_cols.append((col, age_str))
+                mapped_ages.add(age_str)
+                break
 
-    age_cols = []
-    if col_age_10:
-        age_cols.append((col_age_10, "10"))
-    if col_age_11:
-        age_cols.append((col_age_11, "11"))
-    if col_age_12:
-        age_cols.append((col_age_12, "12"))
-
-    if not age_cols:
-        return 0, f"Could not isolate Age 10, 11, or 12. Detected columns: {list(df.columns)}"
+    if not detected_age_cols:
+        return 0, f"Could not detect any Age columns (10-17). Found headers: {list(df.columns)}"
 
     saved_count = 0
     current_meet = default_meet
@@ -558,7 +621,7 @@ def parse_standards_dataframe(df_raw, default_meet):
 
         clean_ev = normalize_event_name(raw_ev)
 
-        for col_name, age_band in age_cols:
+        for col_name, age_band in detected_age_cols:
             val_raw = row[col_name]
             sec = parse_time_value(val_raw)
             if sec is None:
@@ -569,8 +632,8 @@ def parse_standards_dataframe(df_raw, default_meet):
             st.session_state.standards_db[key] = {"time": disp_str, "sec": sec}
             saved_count += 1
 
-    mapped_labels = [f"Age {a}: '{c}'" for c, a in age_cols]
-    return saved_count, f"Mapped columns -> " + " | ".join(mapped_labels)
+    mapped_labels = [f"Age {a}: '{c}'" for c, a in detected_age_cols]
+    return saved_count, f"Mapped: " + " | ".join(mapped_labels)
 
 # ==============================================================================
 # 7. AUTOMATIC SYNC & INITIALIZATION
@@ -581,7 +644,6 @@ if "swimmer_df" not in st.session_state:
 if "standards_db" not in st.session_state:
     st.session_state.standards_db = load_saved_standards()
 
-# Automatic background synchronization from Google Sheets on app launch
 if "auto_synced" not in st.session_state:
     df_auto, err_auto = fetch_google_sheet_csv(DEFAULT_GSHEET_URL, DEFAULT_WORKSHEET_GID)
     if not err_auto and df_auto is not None and not df_auto.empty:
@@ -603,20 +665,20 @@ def perform_manual_sync():
 
 def lookup_standard(meet, age, event_name):
     clean_ev = normalize_event_name(event_name)
-    key = (meet, age, clean_ev)
+    key = (meet, str(age), clean_ev)
     if key in st.session_state.standards_db:
         return st.session_state.standards_db[key]["time"], st.session_state.standards_db[key]["sec"]
 
     req_dist, req_stroke = extract_distance_and_stroke(event_name)
     if req_dist and req_stroke:
         for (m, a, e), data in st.session_state.standards_db.items():
-            if m == meet and a == age:
+            if m == meet and str(a) == str(age):
                 cand_dist, cand_stroke = extract_distance_and_stroke(e)
                 if cand_dist == req_dist and cand_stroke == req_stroke:
                     return data["time"], data["sec"]
 
     for (m, a, e), data in st.session_state.standards_db.items():
-        if m == meet and a == age and (e == clean_ev or e == str(event_name).lower()):
+        if m == meet and str(a) == str(age) and (e == clean_ev or e == str(event_name).lower()):
             return data["time"], data["sec"]
 
     return None, None
@@ -631,7 +693,7 @@ with banner_left:
         f"""
         <div style="padding-top: 4px;">
             <h1 style="color: #002B49; margin-bottom: 2px; font-weight: 800; font-size: 2.1rem;">
-                🏊‍♀️️ {SWIMMER_NAME}
+                🏊‍♀️ {SWIMMER_NAME}
             </h1>
             <p style="color: #475569; font-size: 1.02rem; margin: 0;">
                 <strong style="color: #005A9C;">City of Leeds Swimming Club</strong> &bull; 
@@ -688,7 +750,7 @@ df = st.session_state.swimmer_df
 # 10. CONFIGURE COMPETITION QUALIFYING TIMES (EXPANDER)
 # ==============================================================================
 with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False):
-    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️ Single Event Entry"])
+    tab_gsheet, tab_paste, tab_single = st.tabs(["🌐 Live Google Sheet Link", "📋 Paste Cells", "✏️️ Single Event Entry"])
 
     with tab_gsheet:
         st.caption("Qualifying times sync automatically when the app loads, or whenever you tap the 'Sync QTs' button above.")
@@ -751,7 +813,7 @@ with st.expander("⚙️ Configure Competition Qualifying Times", expanded=False
             s_ev = st.selectbox("Event", all_evs)
         with col_s2:
             s_meet = st.selectbox("Meet", ["Yorkshire LC", "Yorkshire SC (Winter)", "NER LC", "NER SC (Winter)"])
-            s_age = st.selectbox("Age Band", ["10", "11", "12"])
+            s_age = st.selectbox("Age Band", ALL_AGE_BANDS, index=1)
         with col_s3:
             s_val = st.text_input("Target Cut (e.g. 12.3, 33.80, or 1:08.20)")
             if st.button("💾 Save Standard", use_container_width=True):
@@ -798,7 +860,7 @@ def get_best_eligible_times(ev):
     return best_lc_sec, best_sc_sec
 
 # ==============================================================================
-# 11. APPLICATION NAVIGATION TABS (WITH AGE 10, 11, 12 FILTERS)
+# 11. APPLICATION NAVIGATION TABS (WITH AGES 10 TO 17 DROPDOWNS)
 # ==============================================================================
 main_tab_events, main_tab_summary = st.tabs([
     "📊 Event-by-Event Tracker",
@@ -806,12 +868,18 @@ main_tab_events, main_tab_summary = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: DETAILED EVENT CARDS
+# TAB 1: DETAILED EVENT CARDS (WITH AGES 10-17 DROPDOWN)
 # ------------------------------------------------------------------------------
 with main_tab_events:
     f_col1, f_col2 = st.columns([1, 2])
     with f_col1:
-        active_age = st.radio("🎯 **Active Target Age:**", ["10", "11", "12"], horizontal=True, index=1, key="age_events_tab")
+        active_age = st.selectbox(
+            "🎯 **Active Target Age Category:**",
+            ALL_AGE_BANDS,
+            index=1,  # Default to Age 11
+            key="age_events_dropdown",
+            help="Select any competition age band between 10 and 17"
+        )
     with f_col2:
         selected_stroke = st.radio(
             "🏊 **Filter by Stroke:**",
@@ -904,41 +972,37 @@ with main_tab_events:
                 st.markdown('</div>', unsafe_allow_html=True)
 
             with card_right:
-                st.write(f"**Championship Progress (Age {active_age})**")
+                st.write(f"**Championship Completion (Age {active_age})**")
+                
+                gauge_r1_c1, gauge_r1_c2 = st.columns(2)
+                with gauge_r1_c1:
+                    st.markdown(render_donut_chart("Yorkshire LC", eval_yks_lc), unsafe_allow_html=True)
+                with gauge_r1_c2:
+                    st.markdown(render_donut_chart("Yorkshire SC Winter", eval_yks_sc), unsafe_allow_html=True)
 
-                if eval_yks_lc[0] != "No Cut":
-                    st.caption(f"Yorkshire LC: {eval_yks_lc[0]} ({eval_yks_lc[3]:.1f}%)")
-                    st.progress(eval_yks_lc[3] / 100.0)
-                else:
-                    st.caption(f"Yorkshire LC (Age {active_age}): No target set.")
+                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-                if eval_yks_sc[0] != "No Cut":
-                    st.caption(f"Yorkshire SC (Winter): {eval_yks_sc[0]} ({eval_yks_sc[3]:.1f}%)")
-                    st.progress(eval_yks_sc[3] / 100.0)
-                else:
-                    st.caption(f"Yorkshire SC Winter (Age {active_age}): No target set.")
-
-                if eval_ner_lc[0] != "No Cut":
-                    st.caption(f"NER LC: {eval_ner_lc[0]} ({eval_ner_lc[3]:.1f}%)")
-                    st.progress(eval_ner_lc[3] / 100.0)
-                else:
-                    st.caption(f"NER LC (Age {active_age}): No target set.")
-
-                if eval_ner_sc[0] != "No Cut":
-                    st.caption(f"NER SC (Winter): {eval_ner_sc[0]} ({eval_ner_sc[3]:.1f}%)")
-                    st.progress(eval_ner_sc[3] / 100.0)
-                else:
-                    st.caption(f"NER SC Winter (Age {active_age}): No target set.")
+                gauge_r2_c1, gauge_r2_c2 = st.columns(2)
+                with gauge_r2_c1:
+                    st.markdown(render_donut_chart("NER LC", eval_ner_lc), unsafe_allow_html=True)
+                with gauge_r2_c2:
+                    st.markdown(render_donut_chart("NER SC Winter", eval_ner_sc), unsafe_allow_html=True)
 
             st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER (WITH AGE 10, 11, 12)
+# TAB 2: CHAMPIONSHIP SUMMARY & TARGET PLANNER (WITH AGES 10-17 DROPDOWN)
 # ------------------------------------------------------------------------------
 with main_tab_summary:
     sum_col1, sum_col2 = st.columns([1, 3])
     with sum_col1:
-        summary_age = st.radio("🎯 **Target Age Category:**", ["10", "11", "12"], horizontal=True, index=1, key="age_summary_tab")
+        summary_age = st.selectbox(
+            "🎯 **Target Age Category:**",
+            ALL_AGE_BANDS,
+            index=1,  # Default to Age 11
+            key="age_summary_dropdown",
+            help="Select any competition age band between 10 and 17"
+        )
     with sum_col2:
         st.info(f"Viewing all qualifications, close targets (<1s), and chasing events for **Age {summary_age}**.")
 
